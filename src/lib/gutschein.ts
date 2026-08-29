@@ -9,9 +9,12 @@ import { round2 } from "./numbers.ts";
 export type GutscheinStatus = "offen" | "teilweise_eingeloest" | "eingeloest";
 
 export interface Gutschein {
+  id?: string;
   nummer: string;
+  ausgabe_datum?: string;
   betrag: number;
   eingeloest_betrag: number;
+  eingeloest_datum?: string;
   status: GutscheinStatus;
 }
 
@@ -27,4 +30,12 @@ export function offeneGutscheinSumme(gutscheine: Gutschein[]): number {
       .filter((g) => g.status !== "eingeloest")
       .reduce((summe, g) => summe + offenerBetrag(g), 0),
   );
+}
+
+/** Neuer Status, nachdem ein weiterer Betrag eingelöst wurde (rundungssicher gegen den Restbetrag geprüft). */
+export function statusNachEinloesung(g: Gutschein, zusatzBetrag: number): GutscheinStatus {
+  const neu = round2(g.eingeloest_betrag + zusatzBetrag);
+  if (neu >= g.betrag) return "eingeloest";
+  if (neu > 0) return "teilweise_eingeloest";
+  return "offen";
 }
