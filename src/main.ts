@@ -4,7 +4,7 @@ import { calc } from "./lib/buchungen.ts";
 import { kassenstand, kassenverlauf } from "./lib/kasse.ts";
 import { offenerBetrag, offeneGutscheinSumme, type Gutschein } from "./lib/gutschein.ts";
 import { naechsteBelegnummer } from "./lib/belegnummer.ts";
-import { formatEur, parseNumber } from "./lib/numbers.ts";
+import { formatEur, parseNumber, round2 } from "./lib/numbers.ts";
 import { uid } from "./lib/uid.ts";
 import type { Beleg, Buchung, Importlauf, Importregel, Konto, Kostenstelle } from "./lib/types.ts";
 import { erstelleDatenquelle } from "./repo/index.ts";
@@ -14,6 +14,10 @@ import { spaltenErkennen, type DublettenKandidat, type ImportFeld } from "./lib/
 import { zeileZuKandidat, type ImportKandidat } from "./lib/importkandidaten.ts";
 import { standardImportRegeln } from "./lib/standardimportregeln.ts";
 import { buchungenZuCsv } from "./lib/buchungscsv.ts";
+import { bwaBericht } from "./lib/bwa.ts";
+import { euerBericht, type EuerZeile } from "./lib/euer.ts";
+import { ustVoranmeldung } from "./lib/ustva.ts";
+import { kontenblatt, summenUndSalden } from "./lib/berichte.ts";
 
 // P1-Grundgerüst: Navigation und Design aus dem Prototyp (referenz/prototyp.html),
 // aber als echte TypeScript-Struktur statt einer HTML-Datei. Buchungen,
@@ -86,9 +90,10 @@ const NAV: NavEintrag[] = [
   { typ: "ziel", key: "kasse", label: "kasse", icon: "cash" },
   { typ: "ziel", key: "gutscheine", label: "nav_gutscheine", icon: "voucher" },
   { typ: "trenner", label: "ausw" },
-  { typ: "ziel", key: "bwa", label: "bwa", icon: "chart", phase: "P2" },
-  { typ: "ziel", key: "euer", label: "euer", icon: "doc", phase: "P2" },
-  { typ: "ziel", key: "ustva", label: "ust", icon: "pct", phase: "P2" },
+  { typ: "ziel", key: "bwa", label: "bwa", icon: "chart" },
+  { typ: "ziel", key: "euer", label: "euer", icon: "doc" },
+  { typ: "ziel", key: "ustva", label: "ust", icon: "pct" },
+  { typ: "ziel", key: "berichte", label: "berichte", icon: "list" },
   { typ: "trenner", label: "pers" },
   { typ: "ziel", key: "mitarbeiter", label: "ma", icon: "users", phase: "P4" },
   { typ: "ziel", key: "stunden", label: "std", icon: "clock", phase: "P4" },
@@ -111,6 +116,8 @@ interface Zustand {
   gutscheine: Gutschein[];
   kassenAnfangsbestand: number;
   kleinunternehmer: boolean;
+  versteuerung: "ist" | "soll";
+  voranmeldung: "monatlich" | "quartalsweise" | "jaehrlich";
   gutscheinSumme: number;
   kassenKonto: "1000" | "1210";
   importregeln: Importregel[];
@@ -135,6 +142,8 @@ async function datenNeuLaden(): Promise<void> {
   zustand.gutscheine = gutscheine;
   zustand.kassenAnfangsbestand = einstellungen.kassenAnfangsbestand;
   zustand.kleinunternehmer = einstellungen.kleinunternehmer;
+  zustand.versteuerung = einstellungen.versteuerung;
+  zustand.voranmeldung = einstellungen.voranmeldung;
   zustand.gutscheinSumme = offeneGutscheinSumme(gutscheine);
   zustand.importregeln = importregeln;
   zustand.importlaeufe = importlaeufe;
@@ -1145,6 +1154,291 @@ async function standardregelnLaden(): Promise<void> {
   zeigeMeldung(t(zustand.sprache, "gespeichert"));
 }
 
+// ---------- Zeiträume (BWA, EÜR, USt-VA, Berichte) ----------
+
+function heutigerMonat(): string {
+  return new Date().toISOString().slice(0, 7);
+}
+
+function monatsSpanne(monat: string): { von: string; bis: string } {
+  const [jahr, m] = monat.split("-").map(Number);
+  const letzterTag = new Date(Date.UTC(jahr, m, 0)).getUTCDate();
+  return { von: `${monat}-01`, bis: `${monat}-${String(letzterTag).padStart(2, "0")}` };
+}
+
+function quartalsSpanne(jahr: number, quartal: number): { von: string; bis: string } {
+  const startMonat = (quartal - 1) * 3 + 1;
+  const endMonat = startMonat + 2;
+  const letzterTag = new Date(Date.UTC(jahr, endMonat, 0)).getUTCDate();
+  return {
+    von: `${jahr}-${String(startMonat).padStart(2, "0")}-01`,
+    bis: `${jahr}-${String(endMonat).padStart(2, "0")}-${String(letzterTag).padStart(2, "0")}`,
+  };
+}
+
+function jahresSpanne(jahr: number): { von: string; bis: string } {
+  return { von: `${jahr}-01-01`, bis: `${jahr}-12-31` };
+}
+
+const zeitraeume: Record<string, { von: string; bis: string }> = {};
+
+function zeitraumFuer(gruppe: string): { von: string; bis: string } {
+  if (!zeitraeume[gruppe]) zeitraeume[gruppe] = monatsSpanne(heutigerMonat());
+  return zeitraeume[gruppe];
+}
+
+function zeitraumAuswahlHtml(gruppe: string): string {
+  const zr = zeitraumFuer(gruppe);
+  return `<div class="row" style="gap:8px;flex-wrap:wrap;align-items:flex-end">
+    <div><label class="f">${t(zustand.sprache, "von")}</label>
+      <input type="date" data-zeitraum-gruppe="${gruppe}" data-zeitraum-teil="von" value="${zr.von}"></div>
+    <div><label class="f">${t(zustand.sprache, "bis")}</label>
+      <input type="date" data-zeitraum-gruppe="${gruppe}" data-zeitraum-teil="bis" value="${zr.bis}"></div>
+    <button class="btn ghost sm fit" data-aktion="zeitraum-monat" data-zeitraum-gruppe="${gruppe}">${t(zustand.sprache, "bwa_monat")}</button>
+    <button class="btn ghost sm fit" data-aktion="zeitraum-quartal" data-zeitraum-gruppe="${gruppe}">${t(zustand.sprache, "zr_quartal")}</button>
+    <button class="btn ghost sm fit" data-aktion="zeitraum-jahr" data-zeitraum-gruppe="${gruppe}">${t(zustand.sprache, "zr_jahr")}</button>
+  </div>`;
+}
+
+// ---------- BWA ----------
+
+let bwaMonat = "";
+
+function bwaZeileHtml(
+  label: string,
+  spalten: { monat: number; vormonat: number; vorjahresmonat: number; jahrKumuliert: number },
+  prozentUmsatz: number,
+  fett = false,
+): string {
+  const stil = fett ? ' style="font-weight:700;border-top:2px solid var(--ink)"' : "";
+  return `<tr${stil}>
+    <td>${t(zustand.sprache, label)}</td>
+    <td class="num">${formatEur(spalten.monat)}</td>
+    <td class="num">${formatEur(spalten.vormonat)}</td>
+    <td class="num">${formatEur(spalten.vorjahresmonat)}</td>
+    <td class="num">${formatEur(spalten.jahrKumuliert)}</td>
+    <td class="num">${prozentUmsatz.toFixed(1)} %</td>
+  </tr>`;
+}
+
+function renderBwa(): string {
+  if (!bwaMonat) bwaMonat = heutigerMonat();
+  const bericht = bwaBericht(zustand.buchungen, kontoVon, zustand.kleinunternehmer, bwaMonat);
+  const umsatzMonat = bericht.zeilen[0]?.monat ?? 0;
+  const prozent = (betrag: number) => (umsatzMonat !== 0 ? round2((betrag / umsatzMonat) * 100) : 0);
+
+  const zeilenHtml: string[] = [];
+  for (const zeile of bericht.zeilen) {
+    zeilenHtml.push(bwaZeileHtml(zeile.label, zeile, zeile.prozentUmsatz));
+    if (zeile.gruppe === "ware") zeilenHtml.push(bwaZeileHtml("bwa_rohertrag", bericht.rohertrag, prozent(bericht.rohertrag.monat), true));
+    if (zeile.gruppe === "sonst")
+      zeilenHtml.push(bwaZeileHtml("bwa_betriebsergebnis", bericht.betriebsergebnis, prozent(bericht.betriebsergebnis.monat), true));
+    if (zeile.gruppe === "neutral")
+      zeilenHtml.push(
+        bwaZeileHtml("bwa_vorlaeufiges_ergebnis", bericht.vorlaeufigesErgebnis, prozent(bericht.vorlaeufigesErgebnis.monat), true),
+      );
+  }
+
+  return (
+    topbarTitel(t(zustand.sprache, "bwa"), `<input type="month" data-aktion="bwa-monat" value="${bwaMonat}">`) +
+    `<div class="card"><div class="tw"><table><thead><tr>
+      <th>${t(zustand.sprache, "name")}</th>
+      <th class="num">${t(zustand.sprache, "bwa_monat")}</th>
+      <th class="num">${t(zustand.sprache, "bwa_vormonat")}</th>
+      <th class="num">${t(zustand.sprache, "bwa_vorjahresmonat")}</th>
+      <th class="num">${t(zustand.sprache, "bwa_jahr_kumuliert")}</th>
+      <th class="num">${t(zustand.sprache, "bwa_prozent_umsatz")}</th>
+    </tr></thead><tbody>${zeilenHtml.join("")}</tbody></table></div></div>`
+  );
+}
+
+// ---------- EÜR ----------
+
+function renderEuer(): string {
+  const zr = zeitraumFuer("euer");
+  const bericht = euerBericht(zustand.buchungen, kontoVon, zustand.kleinunternehmer, zr.von, zr.bis);
+
+  const zeileHtml = (z: (typeof bericht.zeilen)[number]) => `<tr>
+    <td>${z.euer_zeile ?? "—"}</td>
+    <td>${escapeHtml(z.name)}</td>
+    <td class="num">${formatEur(z.netto)} €</td>
+  </tr>`;
+
+  const einnahmenZeilen = bericht.zeilen.filter((z) => z.typ === "erloes");
+  const ausgabenZeilen = bericht.zeilen.filter((z) => z.typ === "aufwand");
+
+  const tabelle = (zeilen: EuerZeile[]) =>
+    zeilen.length
+      ? `<div class="tw"><table><thead><tr>
+          <th>${t(zustand.sprache, "zeile")}</th><th>${t(zustand.sprache, "konto")}</th><th class="num">${t(zustand.sprache, "betrag")}</th>
+        </tr></thead><tbody>${zeilen.map(zeileHtml).join("")}</tbody></table></div>`
+      : `<div class="empty">${t(zustand.sprache, "keine")}</div>`;
+
+  return (
+    topbarTitel(t(zustand.sprache, "euer")) +
+    `<div class="card">${zeitraumAuswahlHtml("euer")}</div>
+    <div class="card" style="margin-top:16px">
+      <h2 style="margin-top:0">${t(zustand.sprache, "euer_einnahmen")}</h2>
+      ${tabelle(einnahmenZeilen)}
+      <div class="row" style="justify-content:flex-end;margin-top:8px"><b>${t(zustand.sprache, "summe")}: ${formatEur(bericht.summeEinnahmen)} €</b></div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <h2 style="margin-top:0">${t(zustand.sprache, "euer_ausgaben")}</h2>
+      ${tabelle(ausgabenZeilen)}
+      <div class="row" style="justify-content:flex-end;margin-top:8px"><b>${t(zustand.sprache, "summe")}: ${formatEur(bericht.summeAusgaben)} €</b></div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <h2 style="margin:0">${t(zustand.sprache, "euer_gewinn")}</h2>
+        <b class="${bericht.gewinn >= 0 ? "pos" : "neg"}" style="font-size:20px">${formatEur(bericht.gewinn)} €</b>
+      </div>
+    </div>
+    ${
+      bericht.privatZeilen.length
+        ? `<div class="card" style="margin-top:16px">
+      <h2 style="margin-top:0">${t(zustand.sprache, "euer_privat_titel")}</h2>
+      <div class="hint" style="margin-bottom:8px">${t(zustand.sprache, "euer_privat_hinweis")}</div>
+      <div class="tw"><table><thead><tr><th>${t(zustand.sprache, "konto")}</th><th class="num">${t(zustand.sprache, "betrag")}</th></tr></thead>
+        <tbody>${bericht.privatZeilen.map((p) => `<tr><td>${escapeHtml(p.name)}</td><td class="num">${formatEur(p.betrag)} €</td></tr>`).join("")}</tbody></table></div>
+    </div>`
+        : ""
+    }`
+  );
+}
+
+// ---------- USt-Voranmeldung ----------
+
+function renderUstva(): string {
+  const zr = zeitraumFuer("ustva");
+  const b = ustVoranmeldung(zustand.buchungen, kontoVon, zustand.kleinunternehmer, zustand.versteuerung, zr.von, zr.bis);
+
+  const kennzahl = (kz: string, label: string, betrag: number) =>
+    `<tr><td>${kz}</td><td>${t(zustand.sprache, label)}</td><td class="num">${formatEur(betrag)} €</td></tr>`;
+
+  return (
+    topbarTitel(t(zustand.sprache, "ust")) +
+    `<div class="card">${zeitraumAuswahlHtml("ustva")}</div>
+    <div class="card" style="margin-top:16px"><div class="tw"><table><thead><tr>
+      <th>Kz</th><th>${t(zustand.sprache, "name")}</th><th class="num">${t(zustand.sprache, "betrag")}</th>
+    </tr></thead><tbody>
+      ${kennzahl("81", "ustva_kz81", b.kz81)}
+      ${kennzahl("86", "ustva_kz86", b.kz86)}
+      ${kennzahl("83", "ustva_kz83", b.kz83)}
+      ${kennzahl("66", "ustva_kz66", b.kz66)}
+    </tbody></table></div></div>
+    <div class="card" style="margin-top:16px">
+      <div class="row" style="justify-content:space-between"><span>${t(zustand.sprache, "ustva_summe")}</span><b>${formatEur(b.umsatzsteuerGesamt)} €</b></div>
+      <div class="row" style="justify-content:space-between;align-items:center;margin-top:8px">
+        <h2 style="margin:0">${t(zustand.sprache, b.zahllast >= 0 ? "ustva_zahllast" : "ustva_erstattung")}</h2>
+        <b class="${b.zahllast >= 0 ? "neg" : "pos"}" style="font-size:20px">${formatEur(Math.abs(b.zahllast))} €</b>
+      </div>
+    </div>
+    <div class="hint" style="margin-top:12px">${t(zustand.sprache, "ustva_hinweis")}</div>`
+  );
+}
+
+// ---------- Berichte: Journal, Summen-Saldenliste, Kontenblätter ----------
+
+let berichteUnterAnsicht: "journal" | "salden" | "kontenblatt" = "journal";
+let kontenblattKonto = "";
+
+function berichteBuchungenGefiltert(): Buchung[] {
+  const zr = zeitraumFuer("berichte");
+  return zustand.buchungen.filter((b) => !b.storniert && b.datum >= zr.von && b.datum <= zr.bis);
+}
+
+function renderJournal(): string {
+  const buchungen = [...berichteBuchungenGefiltert()].sort((a, b) => a.datum.localeCompare(b.datum));
+  if (!buchungen.length) return `<div class="empty">${t(zustand.sprache, "keine")}</div>`;
+  return `<div class="tw"><table><thead><tr>
+      <th>${t(zustand.sprache, "date")}</th><th>${t(zustand.sprache, "beleg")}</th><th>${t(zustand.sprache, "text")}</th>
+      <th>${t(zustand.sprache, "konto")}</th><th>${t(zustand.sprache, "gegen")}</th>
+      <th class="num">${t(zustand.sprache, "betrag")}</th><th class="num">${t(zustand.sprache, "satz")}</th>
+    </tr></thead><tbody>
+      ${buchungen
+        .map(
+          (b) => `<tr>
+            <td>${b.datum.split("-").reverse().join(".")}</td><td>${escapeHtml(b.belegnr ?? "")}</td><td>${escapeHtml(b.text)}</td>
+            <td>${escapeHtml(b.konto)}</td><td>${escapeHtml(b.gegenkonto)}</td>
+            <td class="num">${formatEur(b.betrag_brutto)} €</td><td class="num">${b.ust_satz} %</td>
+          </tr>`,
+        )
+        .join("")}
+    </tbody></table></div>`;
+}
+
+function renderSaldenliste(): string {
+  const zeilen = summenUndSalden(berichteBuchungenGefiltert(), kontoVon);
+  if (!zeilen.length) return `<div class="empty">${t(zustand.sprache, "keine")}</div>`;
+  return `<div class="tw"><table><thead><tr>
+      <th>${t(zustand.sprache, "konto")}</th><th>${t(zustand.sprache, "name")}</th>
+      <th class="num">${t(zustand.sprache, "soll")}</th><th class="num">${t(zustand.sprache, "haben")}</th><th class="num">${t(zustand.sprache, "saldo")}</th>
+    </tr></thead><tbody>
+      ${zeilen
+        .map(
+          (z) => `<tr>
+            <td>${escapeHtml(z.konto)}</td><td>${escapeHtml(z.name)}</td>
+            <td class="num">${formatEur(z.soll)}</td><td class="num">${formatEur(z.haben)}</td>
+            <td class="num ${z.saldo >= 0 ? "" : "neg"}">${formatEur(z.saldo)}</td>
+          </tr>`,
+        )
+        .join("")}
+    </tbody></table></div>`;
+}
+
+function renderKontenblattAnsicht(): string {
+  const auswahl = `<select data-aktion="kontenblatt-konto-waehlen">
+    <option value="">${t(zustand.sprache, "konto_waehlen")}</option>
+    ${zustand.konten
+      .slice()
+      .sort((a, b) => a.nr.localeCompare(b.nr))
+      .map((k) => `<option value="${escapeHtml(k.nr)}" ${kontenblattKonto === k.nr ? "selected" : ""}>${escapeHtml(k.nr)} – ${escapeHtml(k.name)}</option>`)
+      .join("")}
+  </select>`;
+  if (!kontenblattKonto) return `<div style="margin-bottom:12px">${auswahl}</div><div class="empty">${t(zustand.sprache, "keine")}</div>`;
+  const zeilen = kontenblatt(berichteBuchungenGefiltert(), kontoVon, kontenblattKonto);
+  return `<div style="margin-bottom:12px">${auswahl}</div>
+    ${
+      zeilen.length
+        ? `<div class="tw"><table><thead><tr>
+      <th>${t(zustand.sprache, "date")}</th><th>${t(zustand.sprache, "beleg")}</th><th>${t(zustand.sprache, "text")}</th><th>${t(zustand.sprache, "gegen")}</th>
+      <th class="num">${t(zustand.sprache, "soll")}</th><th class="num">${t(zustand.sprache, "haben")}</th><th class="num">${t(zustand.sprache, "saldo")}</th>
+    </tr></thead><tbody>
+      ${zeilen
+        .map(
+          (z) => `<tr>
+            <td>${z.datum.split("-").reverse().join(".")}</td><td>${escapeHtml(z.belegnr)}</td><td>${escapeHtml(z.text)}</td><td>${escapeHtml(z.gegenkonto)}</td>
+            <td class="num">${z.soll ? formatEur(z.soll) : ""}</td><td class="num">${z.haben ? formatEur(z.haben) : ""}</td>
+            <td class="num ${z.saldo >= 0 ? "" : "neg"}"><b>${formatEur(z.saldo)}</b></td>
+          </tr>`,
+        )
+        .join("")}
+    </tbody></table></div>`
+        : `<div class="empty">${t(zustand.sprache, "keine")}</div>`
+    }`;
+}
+
+function renderBerichte(): string {
+  const tabs: { key: typeof berichteUnterAnsicht; label: string }[] = [
+    { key: "journal", label: "journal_titel" },
+    { key: "salden", label: "saldenliste_titel" },
+    { key: "kontenblatt", label: "kontenblatt_titel" },
+  ];
+  const inhalt =
+    berichteUnterAnsicht === "journal" ? renderJournal() : berichteUnterAnsicht === "salden" ? renderSaldenliste() : renderKontenblattAnsicht();
+  return (
+    topbarTitel(t(zustand.sprache, "berichte")) +
+    `<div class="seg" style="margin-bottom:16px">${tabs
+      .map(
+        (tb) =>
+          `<button data-aktion="berichte-tab" data-unteransicht="${tb.key}" class="${berichteUnterAnsicht === tb.key ? "on" : ""}">${t(zustand.sprache, tb.label)}</button>`,
+      )
+      .join("")}</div>
+    <div class="card">${zeitraumAuswahlHtml("berichte")}</div>
+    <div class="card" style="margin-top:16px">${inhalt}</div>`
+  );
+}
+
 // ---------- Platzhalter für kommende Phasen ----------
 
 function renderPlatzhalter(): string {
@@ -1174,6 +1468,14 @@ function renderInhalt(): string {
       return renderGutscheine();
     case "datenimport":
       return renderDatenimport();
+    case "bwa":
+      return renderBwa();
+    case "euer":
+      return renderEuer();
+    case "ustva":
+      return renderUstva();
+    case "berichte":
+      return renderBerichte();
     default:
       return renderPlatzhalter();
   }
@@ -1336,6 +1638,31 @@ function einrichten(): void {
       case "standardregeln-laden":
         void standardregelnLaden();
         break;
+      case "zeitraum-monat": {
+        const gruppe = aktionBtn.dataset.zeitraumGruppe;
+        if (gruppe) Object.assign(zeitraumFuer(gruppe), monatsSpanne(heutigerMonat()));
+        render();
+        break;
+      }
+      case "zeitraum-quartal": {
+        const gruppe = aktionBtn.dataset.zeitraumGruppe;
+        if (gruppe) {
+          const heute = new Date();
+          Object.assign(zeitraumFuer(gruppe), quartalsSpanne(heute.getFullYear(), Math.floor(heute.getMonth() / 3) + 1));
+        }
+        render();
+        break;
+      }
+      case "zeitraum-jahr": {
+        const gruppe = aktionBtn.dataset.zeitraumGruppe;
+        if (gruppe) Object.assign(zeitraumFuer(gruppe), jahresSpanne(new Date().getFullYear()));
+        render();
+        break;
+      }
+      case "berichte-tab":
+        berichteUnterAnsicht = (aktionBtn.dataset.unteransicht as typeof berichteUnterAnsicht) ?? "journal";
+        render();
+        break;
     }
   });
 
@@ -1378,6 +1705,27 @@ function einrichten(): void {
         else if (feld === "gegenkonto") kandidat.gegenkonto = zeilenFeld.value;
       }
     }
+
+    const bwaMonatFeld = ziel.closest<HTMLInputElement>("[data-aktion='bwa-monat']");
+    if (bwaMonatFeld) {
+      bwaMonat = bwaMonatFeld.value;
+      render();
+    }
+
+    const zeitraumFeld = ziel.closest<HTMLInputElement>("[data-zeitraum-gruppe][data-zeitraum-teil]");
+    if (zeitraumFeld) {
+      const gruppe = zeitraumFeld.dataset.zeitraumGruppe!;
+      const zr = zeitraumFuer(gruppe);
+      if (zeitraumFeld.dataset.zeitraumTeil === "von") zr.von = zeitraumFeld.value;
+      else zr.bis = zeitraumFeld.value;
+      render();
+    }
+
+    const kontenblattSelect = ziel.closest<HTMLSelectElement>("[data-aktion='kontenblatt-konto-waehlen']");
+    if (kontenblattSelect) {
+      kontenblattKonto = kontenblattSelect.value;
+      render();
+    }
   });
 
   document.addEventListener("keydown", (ereignis) => {
@@ -1397,6 +1745,8 @@ async function start(): Promise<void> {
     gutscheine: [],
     kassenAnfangsbestand: 0,
     kleinunternehmer: false,
+    versteuerung: "ist",
+    voranmeldung: "monatlich",
     gutscheinSumme: 0,
     kassenKonto: "1000",
     importregeln: [],

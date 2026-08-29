@@ -51,11 +51,16 @@ export function erstelleTauriDatenquelle(db: Database, mandantId: string): Daten
     modus: "tauri",
 
     async mandantEinstellungen(): Promise<MandantEinstellungen> {
-      const zeilen = await db.select<{ kassen_anfangsbestand: number; kleinunternehmer: number }[]>(
-        "SELECT kassen_anfangsbestand, kleinunternehmer FROM mandant LIMIT 1",
-      );
+      const zeilen = await db.select<
+        { kassen_anfangsbestand: number; kleinunternehmer: number; versteuerung: "ist" | "soll"; voranmeldung: MandantEinstellungen["voranmeldung"] }[]
+      >("SELECT kassen_anfangsbestand, kleinunternehmer, versteuerung, voranmeldung FROM mandant LIMIT 1");
       const z = zeilen[0];
-      return { kassenAnfangsbestand: z?.kassen_anfangsbestand ?? 0, kleinunternehmer: z?.kleinunternehmer === 1 };
+      return {
+        kassenAnfangsbestand: z?.kassen_anfangsbestand ?? 0,
+        kleinunternehmer: z?.kleinunternehmer === 1,
+        versteuerung: z?.versteuerung ?? "ist",
+        voranmeldung: z?.voranmeldung ?? "monatlich",
+      };
     },
 
     async gutscheine() {

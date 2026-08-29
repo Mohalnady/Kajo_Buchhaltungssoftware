@@ -17,6 +17,8 @@ export interface LoeschErgebnis {
 export interface MandantEinstellungen {
   kassenAnfangsbestand: number;
   kleinunternehmer: boolean;
+  versteuerung: "ist" | "soll";
+  voranmeldung: "monatlich" | "quartalsweise" | "jaehrlich";
 }
 
 export interface GutscheinAusgabe {

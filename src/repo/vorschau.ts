@@ -46,7 +46,7 @@ export function erstelleVorschauDatenquelle(): Datenquelle {
     modus: "vorschau",
 
     async mandantEinstellungen() {
-      return { kassenAnfangsbestand: 200, kleinunternehmer: false };
+      return { kassenAnfangsbestand: 200, kleinunternehmer: false, versteuerung: "ist", voranmeldung: "monatlich" };
     },
     async gutscheine() {
       return gutscheine.slice();
