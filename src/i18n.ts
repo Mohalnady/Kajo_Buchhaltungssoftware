@@ -1,0 +1,123 @@
+// Sprachschlüssel für die Oberfläche. Keine harten Texte im Code — alles hier.
+// Siehe SPEC.md Abschnitt 3 und CLAUDE.md "Sprache".
+
+export type Sprache = "de" | "en" | "ar";
+
+export const SPRACHEN: { code: Sprache; label: string; rtl: boolean }[] = [
+  { code: "de", label: "Deutsch", rtl: false },
+  { code: "en", label: "English", rtl: false },
+  { code: "ar", label: "العربية", rtl: true },
+];
+
+type Woerterbuch = Record<string, string>;
+
+const de: Woerterbuch = {
+  dash: "Übersicht",
+  buch: "Buchungen",
+  kasse: "Kassenbuch",
+  ausw: "Auswertungen",
+  bwa: "BWA",
+  euer: "EÜR",
+  ust: "Umsatzsteuer",
+  pers: "Personal",
+  ma: "Mitarbeiter",
+  std: "Stundenerfassung",
+  verw: "Verwaltung",
+  konten: "Kontenrahmen",
+  ks: "Kostenstellen",
+  imp: "Import und Export",
+  mand: "Firmen",
+  einst: "Einstellungen",
+  sich: "Sicherung",
+  addb: "Buchung erfassen",
+  welcome: "Das ist heute in deinem Laden los.",
+  phase: "Kommt in Phase",
+  bereich_im_bau: "Dieser Bereich entsteht in einer der nächsten Phasen.",
+  disclaimer:
+    "Kontor ist ein internes Vorbereitungs- und Übersichtswerkzeug. Keine GoBD-Zertifizierung, kein Ersatz für eine TSE-Kasse, keine Lohnabrechnung im rechtlichen Sinn, keine Steuerberatung.",
+  ein: "Einnahmen",
+  aus: "Ausgaben",
+  erg: "Ergebnis",
+  zahllast: "USt-Zahllast",
+  kasseb: "Kassenbestand",
+  kasse_negativ: "Kassenbestand rechnerisch negativ — Buchungen prüfen.",
+  gutscheine: "Offene Gutscheine",
+  kleinunternehmer_hinweis: "Kleinunternehmer § 19 — 0 % USt",
+  beispieldaten: "Beispieldaten zur Vorschau — noch keine echte Erfassung angebunden.",
+};
+
+const en: Woerterbuch = {
+  dash: "Overview",
+  buch: "Entries",
+  kasse: "Cash book",
+  ausw: "Reports",
+  bwa: "P&L report",
+  euer: "Cash-basis result",
+  ust: "VAT",
+  pers: "Staff",
+  ma: "Employees",
+  std: "Time tracking",
+  verw: "Admin",
+  konten: "Chart of accounts",
+  ks: "Cost centres",
+  imp: "Import and export",
+  mand: "Companies",
+  einst: "Settings",
+  sich: "Backup",
+  addb: "Add entry",
+  welcome: "Here's what's happening in your shop today.",
+  phase: "Coming in phase",
+  bereich_im_bau: "This area will be built in one of the next phases.",
+  disclaimer:
+    "Kontor is an internal preparation and overview tool. No GoBD certification, no replacement for a certified till system, no legal payroll processing, no tax advice.",
+  ein: "Income",
+  aus: "Expenses",
+  erg: "Result",
+  zahllast: "VAT payable",
+  kasseb: "Cash on hand",
+  kasse_negativ: "Cash balance is mathematically negative — check entries.",
+  gutscheine: "Open vouchers",
+  kleinunternehmer_hinweis: "Small business scheme § 19 — 0% VAT",
+  beispieldaten: "Example data for preview — not yet connected to real entries.",
+};
+
+const ar: Woerterbuch = {
+  dash: "نظرة عامة",
+  buch: "القيود",
+  kasse: "دفتر الصندوق",
+  ausw: "التقارير",
+  bwa: "تقرير الأرباح",
+  euer: "النتيجة النقدية",
+  ust: "ضريبة القيمة المضافة",
+  pers: "الموظفون",
+  ma: "الموظفون",
+  std: "تسجيل الساعات",
+  verw: "الإدارة",
+  konten: "دليل الحسابات",
+  ks: "مراكز التكلفة",
+  imp: "الاستيراد والتصدير",
+  mand: "الشركات",
+  einst: "الإعدادات",
+  sich: "النسخ الاحتياطي",
+  addb: "إضافة قيد",
+  welcome: "هذا ما يجري في متجرك اليوم.",
+  phase: "قادم في المرحلة",
+  bereich_im_bau: "سيتم بناء هذا القسم في إحدى المراحل القادمة.",
+  disclaimer:
+    "Kontor أداة داخلية للتحضير والمراجعة فقط. لا شهادة GoBD، ولا بديل عن صندوق نقدي معتمد، ولا معالجة رواتب قانونية، ولا استشارة ضريبية.",
+  ein: "الإيرادات",
+  aus: "المصروفات",
+  erg: "النتيجة",
+  zahllast: "الضريبة المستحقة",
+  kasseb: "رصيد الصندوق",
+  kasse_negativ: "رصيد الصندوق سالب حسابيًا — يرجى مراجعة القيود.",
+  gutscheine: "قسائم مفتوحة",
+  kleinunternehmer_hinweis: "نظام المشاريع الصغيرة § 19 — 0٪ ضريبة",
+  beispieldaten: "بيانات توضيحية للمعاينة — غير مرتبطة بعد بقيود حقيقية.",
+};
+
+const WOERTERBUECHER: Record<Sprache, Woerterbuch> = { de, en, ar };
+
+export function t(sprache: Sprache, schluessel: string): string {
+  return WOERTERBUECHER[sprache][schluessel] ?? de[schluessel] ?? schluessel;
+}

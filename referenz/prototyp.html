@@ -1,0 +1,924 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kontor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{
+  --ink:#14151A; --ink2:#41454D; --muted:#8C9199; --line:#F0F0F3; --surface:#FFFFFF;
+  --pos:#3BA55C; --neg:#E0524F;
+  --t-mint:#E6F4E9; --t-yellow:#FCF3D5; --t-lav:#EDEAFA; --t-blue:#E7F0FD; --t-rose:#FBEAEF;
+  --bar1:#FDEDA8; --bar2:#F6CE45;
+  --r:20px; --r-sm:14px; --r-xs:10px;
+  --sh:0 1px 2px rgba(20,20,30,.04), 0 10px 28px rgba(20,20,30,.05);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  color:var(--ink); font-family:"Plus Jakarta Sans","Noto Sans Arabic",system-ui,sans-serif;
+  font-size:14px; line-height:1.5; min-height:100vh;
+  background:
+    radial-gradient(1100px 620px at 0% -5%, #FAE4EA 0%, rgba(250,228,234,0) 58%),
+    radial-gradient(950px 700px at 105% 105%, #E6F3E9 0%, rgba(230,243,233,0) 62%),
+    #FDFAF5;
+  background-attachment:fixed;
+}
+[dir=rtl] body{font-family:"Noto Sans Arabic","Plus Jakarta Sans",system-ui,sans-serif}
+.num,td.num,th.num,.val{font-variant-numeric:tabular-nums}
+h1{font-size:25px;font-weight:800;margin:0;letter-spacing:-.02em}
+h2{font-size:17px;font-weight:700;margin:0 0 14px;letter-spacing:-.01em}
+h3{font-size:14.5px;font-weight:700;margin:0 0 14px}
+svg.i{width:19px;height:19px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:0 0 auto}
+
+.app{display:flex;gap:18px;padding:18px;max-width:1580px;margin:0 auto}
+aside{width:238px;flex:0 0 238px;background:var(--surface);border-radius:26px;box-shadow:var(--sh);
+  padding:22px 14px 18px;position:sticky;top:18px;height:calc(100vh - 36px);display:flex;flex-direction:column}
+.brand{display:flex;align-items:center;gap:9px;font-size:20px;font-weight:800;padding:0 10px 4px;letter-spacing:-.02em}
+.brand b{width:26px;height:26px;border-radius:9px;background:var(--ink);color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800}
+.mand{margin:14px 6px 16px}
+.mand select{border-radius:12px;background:#F7F7F9;border:0;font-weight:600;font-size:12.5px;padding:9px 10px}
+nav{overflow:auto;flex:1;margin:0 -4px;padding:0 4px}
+.navbtn{display:flex;align-items:center;gap:11px;width:100%;text-align:start;background:none;border:0;
+  padding:10px 13px;border-radius:var(--r-sm);cursor:pointer;color:var(--ink2);
+  font-size:13.5px;font-weight:600;font-family:inherit;margin-bottom:2px}
+.navbtn:hover{background:#F6F6F8}
+.navbtn.on{background:var(--ink);color:#fff;box-shadow:0 6px 16px rgba(20,20,30,.18)}
+.navbtn .k{margin-inline-start:auto;font-size:11px;font-weight:700;color:var(--muted)}
+.navbtn.on .k{color:rgba(255,255,255,.6)}
+.navsep{font-size:10.5px;text-transform:uppercase;letter-spacing:.09em;color:#B9BDC5;font-weight:700;padding:15px 13px 7px}
+main{flex:1;min-width:0;padding:4px 6px 50px}
+
+.topbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:6px 0 20px}
+.topbar .sp{flex:1}
+.search{display:flex;align-items:center;gap:8px;background:var(--surface);border-radius:999px;padding:9px 16px;box-shadow:var(--sh);min-width:210px;color:var(--muted)}
+.search input{border:0;background:none;padding:0;outline:none;font-size:13px;width:100%}
+.pillbox{display:flex;align-items:center;gap:4px;background:var(--surface);border-radius:999px;padding:5px 7px;box-shadow:var(--sh)}
+.pillbox input[type=month]{border:0;background:none;padding:4px 4px;width:132px;font-weight:600;font-size:13px}
+.iconbtn{width:36px;height:36px;border-radius:999px;border:0;background:var(--surface);box-shadow:var(--sh);
+  cursor:pointer;display:inline-flex;align-items:center;justify-content:center;color:var(--ink2);position:relative}
+.iconbtn:hover{background:#F6F6F8}
+.who{display:flex;align-items:center;gap:9px;background:var(--surface);border-radius:999px;padding:5px 14px 5px 5px;box-shadow:var(--sh)}
+.who .av{width:30px;height:30px;border-radius:999px;background:var(--t-lav);color:#5A52A6;display:flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:700}
+.who .n{font-size:12.5px;font-weight:700;line-height:1.2}
+.who .r{font-size:10.5px;color:var(--muted)}
+
+.card{background:var(--surface);border-radius:var(--r);box-shadow:var(--sh);padding:20px 22px}
+.grid{display:grid;gap:14px}
+.g4{grid-template-columns:repeat(4,1fr)} .g3{grid-template-columns:repeat(3,1fr)} .g2{grid-template-columns:repeat(2,1fr)}
+.dash{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:14px;align-items:start}
+.tile{border-radius:var(--r-sm);padding:14px 15px;position:relative;cursor:pointer;border:0;text-align:start;width:100%;font-family:inherit}
+.tile .tt{font-size:13px;font-weight:700;margin-bottom:3px;padding-inline-end:18px}
+.tile .ts{font-size:11px;color:#6C717A;line-height:1.35}
+.tile .ar{position:absolute;top:12px;inset-inline-end:13px;color:#6C717A}
+.tile:hover{filter:brightness(.98)}
+
+.kpiwrap{background:var(--surface);border-radius:var(--r);box-shadow:var(--sh);padding:6px;overflow:hidden}
+.kpi{padding:17px 19px;border-inline-end:1px solid var(--line);border-bottom:1px solid var(--line)}
+.kpi .lbl{font-size:12.5px;font-weight:600;color:var(--ink2)}
+.kpi .val{font-size:27px;font-weight:800;margin-top:8px;letter-spacing:-.03em}
+.kpi .dlt{font-size:11.5px;font-weight:600;margin-top:7px;color:var(--muted);display:flex;align-items:center;gap:4px}
+.kpi:nth-child(3n){border-inline-end:0}
+.kpi:nth-last-child(-n+3){border-bottom:0}
+.pos{color:var(--pos)} .neg{color:var(--neg)}
+
+button,select,input,textarea{font-family:inherit;font-size:13.5px;color:var(--ink)}
+input,select,textarea{background:#FBFBFC;border:1px solid var(--line);border-radius:var(--r-xs);padding:10px 11px;width:100%}
+input:focus,select:focus,textarea:focus{outline:2px solid #D8D8E0;outline-offset:-1px;background:#fff}
+label.f{display:block;font-size:11.5px;font-weight:600;color:var(--muted);margin-bottom:5px}
+.btn{background:var(--ink);color:#fff;border:0;border-radius:999px;padding:10px 18px;cursor:pointer;
+  font-weight:600;font-size:13px;width:auto;white-space:nowrap;box-shadow:0 6px 16px rgba(20,20,30,.16);
+  display:inline-flex;align-items:center;gap:7px}
+.btn:hover{background:#000}
+.btn.ghost{background:var(--surface);color:var(--ink2);box-shadow:var(--sh)}
+.btn.ghost:hover{background:#F6F6F8}
+.btn.sm{padding:7px 13px;font-size:12px;box-shadow:none}
+.btn.danger{background:#FCEBEB;color:var(--neg);box-shadow:none}
+.btn.wide{width:100%;justify-content:center}
+.row{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap}
+.row>*{flex:1;min-width:130px}
+.row>.fit{flex:0 0 auto;min-width:0}
+.seg{display:inline-flex;background:#F4F4F6;border-radius:999px;padding:3px}
+.seg button{border:0;background:none;border-radius:999px;padding:6px 15px;font-size:12.5px;font-weight:600;cursor:pointer;color:var(--muted)}
+.seg button.on{background:var(--ink);color:#fff}
+
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:start;font-size:11.5px;color:var(--muted);font-weight:600;padding:0 10px 10px}
+td{padding:11px 10px;border-top:1px solid var(--line);vertical-align:middle}
+td.num,th.num{text-align:end}
+tbody tr:hover td{background:#FAFAFC}
+.tw{overflow-x:auto}
+.tag{display:inline-block;font-size:11px;font-weight:700;background:#F4F4F6;border-radius:7px;padding:2px 7px;color:var(--ink2)}
+.pill{display:inline-block;font-size:11px;font-weight:700;border-radius:999px;padding:4px 11px}
+.pill.g{background:var(--t-mint);color:#2C7A44} .pill.y{background:var(--t-yellow);color:#8A6A12}
+.pill.b{background:var(--t-blue);color:#2A5CA5} .pill.r{background:var(--t-rose);color:#A33B58}
+.empty{padding:34px;text-align:center;color:var(--muted);font-size:13px}
+.hint{font-size:12.5px;color:var(--muted)}
+.note{background:var(--t-yellow);border-radius:var(--r-sm);padding:13px 16px;font-size:12.5px;color:#6B5716}
+.listrow{display:flex;align-items:center;gap:11px;padding:10px 0}
+.listrow+.listrow{border-top:1px solid var(--line)}
+.av2{width:32px;height:32px;border-radius:10px;display:flex;align-items:center;justify-content:center;flex:0 0 auto;color:#41454D}
+.listrow .n{font-size:12.5px;font-weight:600;line-height:1.25}
+.listrow .s{font-size:11px;color:var(--muted)}
+.listrow .v{margin-inline-start:auto;font-weight:700;font-size:13px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.bar{height:7px;border-radius:999px;background:#F1F1F4;overflow:hidden}
+.bar>i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--bar1),var(--bar2))}
+.chart{display:flex;align-items:flex-end;gap:7px;height:196px;padding-top:10px}
+.chart .c{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:8px;height:100%}
+.chart .b{width:72%;max-width:32px;border-radius:8px 8px 4px 4px;background:linear-gradient(180deg,var(--bar1),var(--bar2));min-height:3px}
+.chart .c:hover .b{background:linear-gradient(180deg,#F6CE45,#E5B41C)}
+.chart .l{font-size:10.5px;color:var(--muted);font-weight:600}
+.yax{display:flex;flex-direction:column;justify-content:space-between;height:196px;padding-top:10px;font-size:10.5px;color:var(--muted);font-weight:600;text-align:end;flex:0 0 auto}
+
+.mask{position:fixed;inset:0;background:rgba(20,22,28,.36);display:flex;align-items:flex-start;justify-content:center;padding:40px 14px;overflow:auto;z-index:50}
+.modal{background:var(--surface);border-radius:24px;padding:24px;width:100%;max-width:580px;box-shadow:0 24px 60px rgba(20,20,30,.2)}
+.modal.wide{max-width:880px}
+.mhead{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
+.x{background:#F4F4F6;border:0;cursor:pointer;color:var(--ink2);width:32px;height:32px;border-radius:999px;padding:0;display:flex;align-items:center;justify-content:center}
+.toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:11px 20px;border-radius:999px;font-size:13px;z-index:99;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+.logobox{border:1px dashed #DEDEE4;border-radius:var(--r-sm);padding:16px;text-align:center;background:#FBFBFC}
+.logobox img{max-height:76px;max-width:220px;object-fit:contain}
+.soon{display:flex;flex-direction:column;align-items:center;gap:14px;padding:46px 20px;text-align:center}
+.soon .ph{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#8A6A12;background:var(--t-yellow);border-radius:999px;padding:5px 13px}
+
+@media(max-width:1100px){.dash{grid-template-columns:1fr}}
+@media(max-width:900px){
+  .app{flex-direction:column;padding:12px;gap:12px}
+  aside{width:100%;flex:none;height:auto;position:static;border-radius:20px}
+  nav{display:grid;grid-template-columns:repeat(2,1fr);gap:3px}
+  .navsep{grid-column:1/-1;padding-top:10px}
+  .g4,.g3,.g2{grid-template-columns:1fr 1fr}
+  .kpi{border-inline-end:0}
+  .kpi:nth-last-child(-n+3){border-bottom:0}
+  main{padding:0}
+  h1{font-size:21px}
+  .search{display:none}
+}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="app">
+  <aside>
+    <div class="brand"><b>K</b><span>Kontor</span></div>
+    <div class="mand"><select id="mandsel" onchange="switchMandant(this.value)"></select></div>
+    <nav id="nav"></nav>
+    <div><button class="btn wide" onclick="buchungForm()"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span id="addlbl"></span></button></div>
+  </aside>
+  <main id="view"></main>
+</div>
+<div id="modal"></div>
+<script>
+/* ==========================================================
+   KONTOR – P0 Prototyp
+   Alles anlegbar, bearbeitbar, löschbar. Daten bleiben lokal.
+   ========================================================== */
+
+/* ---------- Icons ---------- */
+const IC={
+  dash:'M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z',
+  book:'M4 5a2 2 0 0 1 2-2h12v18H6a2 2 0 0 1-2-2zM8 7h7M8 11h7',
+  cash:'M3 7h18v10H3zM12 12h.01M6 12h.01M18 12h.01',
+  chart:'M4 20V10M10 20V4M16 20v-7M22 20H2',
+  doc:'M6 3h8l4 4v14H6zM14 3v4h4M9 13h6M9 17h6',
+  pct:'M19 5 5 19M7.5 7.5h.01M16.5 16.5h.01M6 9a3 3 0 1 1 3-3 3 3 0 0 1-3 3zM18 21a3 3 0 1 1 3-3 3 3 0 0 1-3 3z',
+  users:'M16 20v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 10a4 4 0 1 0-4-4 4 4 0 0 0 4 4zM22 20v-2a4 4 0 0 0-3-3.9M16 2.1a4 4 0 0 1 0 7.8',
+  clock:'M12 21a9 9 0 1 0-9-9 9 9 0 0 0 9 9zM12 7v5l3 2',
+  list:'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01',
+  tagg:'M20 12.5 12.5 20 3 10.5V3h7.5zM7.5 7.5h.01',
+  imp:'M12 3v12M8 11l4 4 4-4M4 19h16',
+  gear:'M12 15.5a3.5 3.5 0 1 0-3.5-3.5 3.5 3.5 0 0 0 3.5 3.5zM19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1v.3a2 2 0 0 1-4 0v-.2a1.6 1.6 0 0 0-2.8-1.1l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0-1.1-2.7H3a2 2 0 0 1 0-4h.2a1.6 1.6 0 0 0 1.1-2.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 2.7-1.1V3a2 2 0 0 1 4 0v.2a1.6 1.6 0 0 0 2.8 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0 1.1 2.7h.3a2 2 0 0 1 0 4h-.2a1.6 1.6 0 0 0-1.5 1z',
+  shield:'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z',
+  build:'M3 21h18M5 21V7l7-4 7 4v14M9 9h.01M9 13h.01M9 17h.01M15 9h.01M15 13h.01M15 17h.01',
+  search:'M11 19a8 8 0 1 0-8-8 8 8 0 0 0 8 8zM21 21l-4.3-4.3',
+  bell:'M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0',
+  ar:'M7 17 17 7M9 7h8v8',
+  plus:'M12 5v14M5 12h14', x:'M18 6 6 18M6 6l12 12',
+  edit:'M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z',
+  trash:'M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6',
+  up:'M18 15l-6-6-6 6', dn:'M6 9l6 6 6-6'
+};
+const ico=(n,s)=>`<svg class="i" viewBox="0 0 24 24" ${s?`style="${s}"`:''}><path d="${IC[n]||''}"/></svg>`;
+
+/* ---------- Sprachen ---------- */
+const L={
+ de:{dash:'Übersicht',buch:'Buchungen',kasse:'Kassenbuch',ausw:'Auswertungen',bwa:'BWA',euer:'EÜR',ust:'Umsatzsteuer',
+  pers:'Personal',ma:'Mitarbeiter',std:'Stundenerfassung',verw:'Verwaltung',konten:'Kontenrahmen',ks:'Kostenstellen',
+  imp:'Import und Export',mand:'Firmen',einst:'Einstellungen',sich:'Sicherung',
+  addb:'Buchung erfassen',search:'Suchen',welcome:'Das ist heute in deinem Laden los.',
+  ein:'Einnahmen',aus:'Ausgaben',erg:'Ergebnis',zahl:'USt-Zahllast',kasseb:'Kassenbestand',anz:'Buchungssätze',
+  netto:'netto',brutto:'brutto',monat:'Monat',quartal:'Quartal',jahr:'Jahr',
+  umsatzverlauf:'Umsatzverlauf',topkosten:'Größte Kosten',letzte:'Letzte Buchungen',schnell:'Schnellzugriff',
+  save:'Speichern',cancel:'Abbrechen',del:'Löschen',edit:'Bearbeiten',neu:'Neu anlegen',
+  date:'Datum',beleg:'Beleg',text:'Buchungstext',konto:'Konto',gegen:'Gegenkonto',betrag:'Betrag brutto',satz:'Steuersatz',
+  kst:'Kostenstelle',nr:'Nummer',name:'Bezeichnung',art:'Art',keine:'Noch nichts erfasst.',
+  firma:'Firma',inhaber:'Inhaber',strasse:'Straße',plz:'PLZ',ort:'Ort',stnr:'Steuernummer',ustid:'USt-IdNr.',
+  tel:'Telefon',mail:'E-Mail',logo:'Logo',klein:'Kleinunternehmer § 19',wj:'Wirtschaftsjahr',
+  gewinn:'Gewinnermittlung',sprache:'Sprache',phase:'Kommt in Phase',
+  vormonat:'zum Vormonat',erloes:'Erlös',aufwand:'Aufwand',finanz:'Finanzkonto',privat:'Privat',
+  exp:'Sicherung herunterladen',impj:'Sicherung einlesen',
+  qa1:'Buchung erfassen',qa1s:'Beleg schnell eintragen',qa2:'Daten importieren',qa2s:'Bank oder Kasse einlesen',
+  qa3:'Monatspaket',qa3s:'Alles für den Steuerberater',qa4:'Stunden erfassen',qa4s:'Arbeitszeiten eintragen'},
+ en:{dash:'Overview',buch:'Entries',kasse:'Cash book',ausw:'Reports',bwa:'P&L report',euer:'Cash-basis result',ust:'VAT',
+  pers:'Staff',ma:'Employees',std:'Time tracking',verw:'Admin',konten:'Chart of accounts',ks:'Cost centres',
+  imp:'Import and export',mand:'Companies',einst:'Settings',sich:'Backup',
+  addb:'Add entry',search:'Search',welcome:"Here's what's happening in your shop today.",
+  ein:'Income',aus:'Expenses',erg:'Result',zahl:'VAT payable',kasseb:'Cash on hand',anz:'Entries',
+  netto:'net',brutto:'gross',monat:'Month',quartal:'Quarter',jahr:'Year',
+  umsatzverlauf:'Revenue trend',topkosten:'Largest costs',letzte:'Recent entries',schnell:'Quick actions',
+  save:'Save',cancel:'Cancel',del:'Delete',edit:'Edit',neu:'Add new',
+  date:'Date',beleg:'Doc no.',text:'Description',konto:'Account',gegen:'Contra account',betrag:'Gross amount',satz:'Tax rate',
+  kst:'Cost centre',nr:'Number',name:'Name',art:'Type',keine:'Nothing recorded yet.',
+  firma:'Company',inhaber:'Owner',strasse:'Street',plz:'Post code',ort:'City',stnr:'Tax number',ustid:'VAT ID',
+  tel:'Phone',mail:'Email',logo:'Logo',klein:'Small business scheme',wj:'Financial year',
+  gewinn:'Profit method',sprache:'Language',phase:'Coming in phase',
+  vormonat:'vs last month',erloes:'Revenue',aufwand:'Expense',finanz:'Bank or cash',privat:'Private',
+  exp:'Download backup',impj:'Load backup',
+  qa1:'Add entry',qa1s:'Record a receipt',qa2:'Import data',qa2s:'Read bank or till file',
+  qa3:'Monthly pack',qa3s:'Everything for your accountant',qa4:'Track time',qa4s:'Enter working hours'},
+ ar:{dash:'نظرة عامة',buch:'القيود',kasse:'دفتر الصندوق',ausw:'التقارير',bwa:'تقرير الأرباح',euer:'النتيجة النقدية',ust:'ضريبة القيمة المضافة',
+  pers:'الموظفون',ma:'الموظفون',std:'تسجيل الساعات',verw:'الإدارة',konten:'دليل الحسابات',ks:'مراكز التكلفة',
+  imp:'الاستيراد والتصدير',mand:'الشركات',einst:'الإعدادات',sich:'النسخ الاحتياطي',
+  addb:'إضافة قيد',search:'بحث',welcome:'هذا ما يجري في متجرك اليوم.',
+  ein:'الإيرادات',aus:'المصروفات',erg:'النتيجة',zahl:'الضريبة المستحقة',kasseb:'رصيد الصندوق',anz:'عدد القيود',
+  netto:'صافي',brutto:'إجمالي',monat:'شهر',quartal:'ربع',jahr:'سنة',
+  umsatzverlauf:'تطور المبيعات',topkosten:'أكبر التكاليف',letzte:'آخر القيود',schnell:'إجراءات سريعة',
+  save:'حفظ',cancel:'إلغاء',del:'حذف',edit:'تعديل',neu:'إضافة جديد',
+  date:'التاريخ',beleg:'رقم المستند',text:'البيان',konto:'الحساب',gegen:'الحساب المقابل',betrag:'المبلغ الإجمالي',satz:'نسبة الضريبة',
+  kst:'مركز التكلفة',nr:'الرقم',name:'الاسم',art:'النوع',keine:'لا توجد بيانات بعد.',
+  firma:'الشركة',inhaber:'المالك',strasse:'الشارع',plz:'الرمز البريدي',ort:'المدينة',stnr:'الرقم الضريبي',ustid:'رقم ضريبة القيمة',
+  tel:'الهاتف',mail:'البريد',logo:'الشعار',klein:'نظام المشاريع الصغيرة',wj:'السنة المالية',
+  gewinn:'طريقة تحديد الربح',sprache:'اللغة',phase:'قادم في المرحلة',
+  vormonat:'مقارنة بالشهر السابق',erloes:'إيراد',aufwand:'مصروف',finanz:'صندوق أو بنك',privat:'خاص',
+  exp:'تنزيل نسخة احتياطية',impj:'تحميل نسخة احتياطية',
+  qa1:'إضافة قيد',qa1s:'تسجيل مستند بسرعة',qa2:'استيراد البيانات',qa2s:'قراءة ملف البنك أو الصندوق',
+  qa3:'حزمة الشهر',qa3s:'كل ما يحتاجه المحاسب',qa4:'تسجيل الساعات',qa4s:'إدخال أوقات العمل'}
+};
+const t=k=>(L[DATA.sprache]&&L[DATA.sprache][k])||L.de[k]||k;
+
+/* ---------- Kontenrahmen SKR03 ---------- */
+const SKR03=[
+ ['1000','Kasse','finanz',0,''],['1200','Bank','finanz',0,''],['1210','Kartenzahlung SumUp','finanz',0,''],
+ ['1360','Geldtransit','finanz',0,''],['1800','Privatentnahme','privat',0,''],['1890','Privateinlage','privat',0,''],
+ ['1700','Verbindlichkeit aus Gutscheinen','finanz',0,''],
+ ['8300','Erlöse 7 % USt','erloes',7,'umsatz'],['8400','Erlöse 19 % USt','erloes',19,'umsatz'],
+ ['8195','Erlöse Kleinunternehmer § 19','erloes',0,'umsatz'],['8905','Unentgeltliche Wertabgabe','erloes',7,'neutral'],
+ ['2700','Sonstige betriebliche Erträge','erloes',0,'neutral'],
+ ['3300','Wareneingang 7 % Vorsteuer','aufwand',7,'ware'],['3400','Wareneingang 19 % Vorsteuer','aufwand',19,'ware'],
+ ['3960','Verpackungsmaterial','aufwand',19,'ware'],
+ ['4100','Löhne und Gehälter','aufwand',0,'personal'],['4110','Löhne Minijob','aufwand',0,'personal'],
+ ['4130','Gesetzliche Sozialaufwendungen','aufwand',0,'personal'],
+ ['4210','Miete Ladenlokal','aufwand',0,'raum'],['4240','Strom, Gas, Wasser','aufwand',19,'raum'],
+ ['4250','Reinigung','aufwand',19,'raum'],['4260','Instandhaltung Räume','aufwand',19,'raum'],
+ ['4320','Gewerbesteuer','aufwand',0,'steuern'],['4360','Versicherungen','aufwand',0,'vers'],
+ ['4380','Beiträge IHK und Verbände','aufwand',0,'vers'],
+ ['4530','Laufende Kfz-Kosten','aufwand',19,'kfz'],['4540','Kfz-Versicherung und -Steuer','aufwand',0,'kfz'],
+ ['4600','Werbekosten','aufwand',19,'werbung'],['4650','Bewirtungskosten','aufwand',19,'werbung'],
+ ['4670','Reisekosten','aufwand',19,'werbung'],['4750','Transport und Fracht','aufwand',19,'warenabgabe'],
+ ['4830','Abschreibungen','aufwand',0,'afa'],['4855','Sofortabschreibung GWG','aufwand',19,'afa'],
+ ['4805','Reparatur Ausstattung','aufwand',19,'rep'],
+ ['4910','Porto','aufwand',19,'sonst'],['4920','Telefon und Internet','aufwand',19,'sonst'],
+ ['4930','Bürobedarf','aufwand',19,'sonst'],['4955','Steuerberatung','aufwand',19,'sonst'],
+ ['4960','Software und Kassensystem','aufwand',19,'sonst'],['4970','Nebenkosten Geldverkehr','aufwand',0,'sonst'],
+ ['4980','Sonstiger Betriebsbedarf','aufwand',19,'sonst']
+].map(a=>({nr:a[0],name:a[1],typ:a[2],ust:a[3],bwa:a[4]}));
+
+/* ---------- Datenmodell ---------- */
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+function neuerMandant(name){
+  return {id:uid(),name:name||'Neue Firma',
+    s:{firma:name||'',inhaber:'',strasse:'',plz:'',ort:'',stnr:'',ustid:'',tel:'',mail:'',logo:'',
+       klein:false,gewinn:'euer',wj:new Date().getFullYear(),kassenAnfang:0},
+    konten:JSON.parse(JSON.stringify(SKR03)), kostenstellen:[], buchungen:[], mitarbeiter:[], stunden:[], regeln:[]};
+}
+let DATA={version:1,sprache:'de',aktiv:null,mandanten:[]};
+let PERIOD=new Date().toISOString().slice(0,7);
+let TAB='dashboard', CHARTMODE='monat';
+const M=()=>DATA.mandanten.find(m=>m.id===DATA.aktiv)||DATA.mandanten[0];
+
+/* ---------- Speicher ---------- */
+const KEY='kontor:v1';
+const Store={
+  async get(k){ if(window.storage){try{const r=await window.storage.get(k);return r?r.value:null}catch(e){return null}}
+    try{return localStorage.getItem(k)}catch(e){return null} },
+  async set(k,v){ if(window.storage){try{await window.storage.set(k,v);return}catch(e){}}
+    try{localStorage.setItem(k,v)}catch(e){toast('Speicher voll')} }
+};
+let st=null;
+function save(){ clearTimeout(st); st=setTimeout(()=>Store.set(KEY,JSON.stringify(DATA)),150); }
+async function load(){
+  const raw=await Store.get(KEY);
+  if(raw){ try{ DATA=Object.assign(DATA,JSON.parse(raw)); }catch(e){} }
+  if(!DATA.mandanten.length){ const m=neuerMandant('Meine Firma'); DATA.mandanten.push(m); DATA.aktiv=m.id; save(); }
+  if(!M()) DATA.aktiv=DATA.mandanten[0].id;
+}
+
+/* ---------- Helfer ---------- */
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const eur=n=>(Number(n)||0).toLocaleString('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2});
+const eurS=n=>eur(n)+' €';
+const kurz=n=>{n=Number(n)||0; return Math.abs(n)>=1000? Math.round(n/1000)+'k' : Math.round(n)};
+const dDE=d=>{ if(!d)return ''; const p=d.split('-'); return p[2]+'.'+p[1]+'.'+p[0]; };
+const MONK=['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
+const MONL=['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+const monName=p=>MONL[+p.slice(5,7)-1]+' '+p.slice(0,4);
+function toast(m){const e=document.createElement('div');e.className='toast';e.textContent=m;document.body.appendChild(e);setTimeout(()=>e.remove(),2500)}
+function num(v){ if(typeof v==='number')return v; if(!v)return 0;
+  let s=String(v).replace(/[^\d,.\-]/g,'');
+  if(s.includes(',')&&s.includes('.')) s=s.lastIndexOf(',')>s.lastIndexOf('.')?s.replace(/\./g,'').replace(',','.'):s.replace(/,/g,'');
+  else s=s.replace(',','.');
+  return parseFloat(s)||0; }
+const konto=nr=>M().konten.find(k=>k.nr===String(nr));
+const inP=(d,p)=>(d||'').slice(0,7)===p;
+function prevP(p){const[y,m]=p.split('-').map(Number);const d=new Date(y,m-2,1);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')}
+function bList(p){return M().buchungen.filter(b=>inP(b.datum,p)).sort((a,b)=>a.datum.localeCompare(b.datum))}
+function split(b){const br=Number(b.betrag)||0,s=M().s.klein?0:(Number(b.ust)||0);const n=br/(1+s/100);return{brutto:br,netto:n,steuer:br-n,satz:s}}
+function calc(list){
+  const r={ein:0,einB:0,ust:0,aus:0,ausB:0,vst:0,proKonto:{}};
+  list.forEach(b=>{const k=konto(b.konto); if(!k)return; const s=split(b);
+    r.proKonto[b.konto]=r.proKonto[b.konto]||{netto:0,n:0}; r.proKonto[b.konto].netto+=s.netto; r.proKonto[b.konto].n++;
+    if(k.typ==='erloes'){r.ein+=s.netto;r.einB+=s.brutto;r.ust+=s.steuer}
+    else if(k.typ==='aufwand'){r.aus+=s.netto;r.ausB+=s.brutto;r.vst+=s.steuer}});
+  r.erg=r.ein-r.aus; r.zahl=r.ust-r.vst; return r;
+}
+function kassenstand(bis){ let s=Number(M().s.kassenAnfang)||0;
+  M().buchungen.filter(b=>b.gegenkonto==='1000'&&(!bis||b.datum<=bis)).forEach(b=>{
+    const k=konto(b.konto); if(!k)return; const v=Number(b.betrag)||0;
+    s += (k.typ==='erloes'||k.nr==='1890')? v : -v; });
+  return s; }
+
+/* ---------- Navigation ---------- */
+const NAV=[
+ ['dashboard','dash','dash'],['buchungen','buch','book'],['kasse','kasse','cash'],
+ ['S','ausw'],
+ ['bwa','bwa','chart'],['euer','euer','doc'],['ustva','ust','pct'],
+ ['S','pers'],
+ ['mitarbeiter','ma','users'],['stunden','std','clock'],
+ ['S','verw'],
+ ['konten','konten','list'],['kostenstellen','ks','tagg'],['datenimport','imp','imp'],
+ ['mandanten','mand','build'],['einstellungen','einst','gear'],['sicherung','sich','shield']
+];
+function renderNav(){
+  $('#nav').innerHTML=NAV.map(n=>n[0]==='S'
+    ?`<div class="navsep">${t(n[1])}</div>`
+    :`<button class="navbtn ${TAB===n[0]?'on':''}" onclick="go('${n[0]}')">${ico(n[2])}<span>${t(n[1])}</span></button>`).join('');
+  $('#mandsel').innerHTML=DATA.mandanten.map(m=>`<option value="${m.id}" ${m.id===DATA.aktiv?'selected':''}>${esc(m.name)}</option>`).join('');
+  $('#addlbl').textContent=t('addb');
+  document.documentElement.dir = DATA.sprache==='ar'?'rtl':'ltr';
+}
+function go(x){TAB=x;renderNav();render();window.scrollTo(0,0)}
+function switchMandant(id){DATA.aktiv=id;save();renderNav();render()}
+function setSprache(s){DATA.sprache=s;save();renderNav();render()}
+function shiftM(d){const[y,m]=PERIOD.split('-').map(Number);const dt=new Date(y,m-1+d,1);
+  PERIOD=dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0');render()}
+
+function topbar(title,sub,actions){
+  const ini=(M().s.inhaber||M().s.firma||'K').trim().slice(0,2).toUpperCase();
+  return `<div class="topbar">
+    <div class="titleblock"><h1>${esc(title)}</h1>${sub?`<div class="sub">${esc(sub)}</div>`:''}</div>
+    <div class="sp"></div>
+    <div class="search">${ico('search')}<input placeholder="${t('search')}" oninput="quickSearch(this.value)"></div>
+    <div class="pillbox"><button class="iconbtn" style="box-shadow:none;width:28px;height:28px" onclick="shiftM(-1)">${ico('up',"transform:rotate(-90deg)")}</button>
+      <input type="month" value="${PERIOD}" onchange="PERIOD=this.value;render()">
+      <button class="iconbtn" style="box-shadow:none;width:28px;height:28px" onclick="shiftM(1)">${ico('dn',"transform:rotate(-90deg)")}</button></div>
+    <div class="who"><span class="av">${esc(ini)}</span><span><span class="n">${esc(M().s.inhaber||M().name)}</span><br><span class="r">${esc(M().name)}</span></span></div>
+    ${actions||''}</div>`;
+}
+function quickSearch(q){ if(!q||q.length<2){return} TAB='buchungen';SEARCH=q;renderNav();render(); }
+let SEARCH='';
+
+/* ---------- Übersicht ---------- */
+const VIEWS={};
+VIEWS.dashboard=()=>{
+  const list=bList(PERIOD),a=calc(list),pv=calc(bList(prevP(PERIOD)));
+  const dlt=(now,before)=>{ if(!before) return ''; const p=Math.round((now-before)/Math.abs(before)*100);
+    return `<span class="${p>=0?'pos':'neg'}">${p>=0?'▲':'▼'} ${Math.abs(p)} %</span> <span>${t('vormonat')}</span>`; };
+  const jahr=PERIOD.slice(0,4);
+  const monate=Array.from({length:12},(_,i)=>{
+    const p=jahr+'-'+String(i+1).padStart(2,'0'); const c=calc(bList(p));
+    return {l:MONK[i],v:CHARTMODE==='jahr'?c.erg:c.ein}; });
+  const mx=Math.max(1,...monate.map(m=>Math.abs(m.v)));
+  const top=Object.entries(a.proKonto).map(([nr,v])=>({nr,...v,k:konto(nr)}))
+    .filter(x=>x.k&&x.k.typ==='aufwand').sort((x,y)=>y.netto-x.netto).slice(0,5);
+  const TL=[['t-mint','qa1','qa1s','buchungForm()'],['t-yellow','qa2','qa2s',"go('datenimport')"],
+            ['t-lav','qa3','qa3s',"go('bwa')"],['t-blue','qa4','qa4s',"go('stunden')"]];
+  return topbar(t('dash'),t('welcome'))+`
+  <div class="grid g4" style="margin-bottom:14px">
+    ${TL.map(x=>`<button class="tile" style="background:var(--${x[0]})" onclick="${x[3]}">
+      <div class="ar">${ico('ar')}</div><div class="tt">${t(x[1])}</div><div class="ts">${t(x[2])}</div></button>`).join('')}
+  </div>
+  <div class="dash">
+    <div>
+      <div class="kpiwrap"><div class="grid g3" style="gap:0">
+        <div class="kpi"><div class="lbl">${t('ein')}</div><div class="val pos">${eurS(a.ein)}</div><div class="dlt">${dlt(a.ein,pv.ein)||`<span>${t('brutto')} ${eur(a.einB)}</span>`}</div></div>
+        <div class="kpi"><div class="lbl">${t('aus')}</div><div class="val neg">${eurS(a.aus)}</div><div class="dlt">${dlt(a.aus,pv.aus)||`<span>${t('brutto')} ${eur(a.ausB)}</span>`}</div></div>
+        <div class="kpi"><div class="lbl">${t('erg')}</div><div class="val ${a.erg>=0?'pos':'neg'}">${eurS(a.erg)}</div><div class="dlt">${dlt(a.erg,pv.erg)||'<span>—</span>'}</div></div>
+        <div class="kpi"><div class="lbl">${t('zahl')}</div><div class="val">${M().s.klein?'§ 19':eurS(a.zahl)}</div><div class="dlt"><span>${M().s.klein?t('klein'):'USt '+eur(a.ust)+' − VSt '+eur(a.vst)}</span></div></div>
+        <div class="kpi"><div class="lbl">${t('kasseb')}</div><div class="val">${eurS(kassenstand(PERIOD+'-31'))}</div><div class="dlt"><span>${monName(PERIOD)}</span></div></div>
+        <div class="kpi"><div class="lbl">${t('anz')}</div><div class="val">${list.length}</div><div class="dlt"><span>${M().buchungen.length} gesamt</span></div></div>
+      </div></div>
+      <div class="card" style="margin-top:14px">
+        <div style="display:flex;align-items:center;margin-bottom:6px"><h3 style="margin:0">${t('umsatzverlauf')} ${jahr}</h3>
+          <div style="margin-inline-start:auto" class="seg">
+            <button class="${CHARTMODE==='monat'?'on':''}" onclick="CHARTMODE='monat';render()">${t('ein')}</button>
+            <button class="${CHARTMODE==='jahr'?'on':''}" onclick="CHARTMODE='jahr';render()">${t('erg')}</button></div></div>
+        <div style="display:flex;gap:10px">
+          <div class="yax"><span>${kurz(mx)}</span><span>${kurz(mx*.66)}</span><span>${kurz(mx*.33)}</span><span>0</span></div>
+          <div class="chart" style="flex:1">${monate.map(m=>`<div class="c" title="${eurS(m.v)}">
+            <div class="b" style="height:${Math.max(1,Math.abs(m.v)/mx*100)}%"></div><div class="l">${m.l}</div></div>`).join('')}</div>
+        </div>
+      </div>
+      <div class="card" style="margin-top:14px"><h3>${t('letzte')}</h3>${bTable(list.slice(-6).reverse())}</div>
+    </div>
+    <div>
+      <div class="card"><h3>${t('topkosten')}</h3>
+        ${top.length?top.map((x,i)=>`<div class="listrow">
+          <span class="av2" style="background:var(--${['t-lav','t-mint','t-yellow','t-blue','t-rose'][i%5]})">${ico('tagg')}</span>
+          <span><span class="n">${esc(x.k.name)}</span><br><span class="s">${x.nr} · ${x.n} Buchungen</span></span>
+          <span class="v">${eurS(x.netto)}</span></div>`).join(''):`<div class="empty">${t('keine')}</div>`}
+      </div>
+      <div class="card" style="margin-top:14px"><h3>${t('mand')}</h3>
+        ${DATA.mandanten.map(m=>`<div class="listrow">
+          <span class="av2" style="background:var(--t-blue)">${ico('build')}</span>
+          <span><span class="n">${esc(m.name)}</span><br><span class="s">${m.buchungen.length} Buchungen</span></span>
+          ${m.id===DATA.aktiv?'<span class="v"><span class="pill g">aktiv</span></span>':`<span class="v"><button class="btn ghost sm" onclick="switchMandant('${m.id}')">öffnen</button></span>`}
+        </div>`).join('')}
+        <button class="btn ghost wide" style="margin-top:12px" onclick="go('mandanten')">${ico('plus')}${t('neu')}</button>
+      </div>
+      <div class="card" style="margin-top:14px"><h3>Fortschritt</h3>
+        ${[['P0 Gerüst',100],['P1 Buchhaltung',35],['P2 Auswertungen',0],['P3 Import und Export',0],['P4 Personal',0]].map(x=>`
+          <div style="margin-bottom:12px"><div style="display:flex;font-size:12px;font-weight:600;margin-bottom:6px">
+            <span>${x[0]}</span><span style="margin-inline-start:auto;color:var(--muted)">${x[1]} %</span></div>
+          <div class="bar"><i style="width:${x[1]}%"></i></div></div>`).join('')}
+      </div>
+    </div>
+  </div>`;
+};
+
+/* ---------- Buchungen ---------- */
+function bTable(list){
+  if(!list.length) return `<div class="empty">${t('keine')}</div>`;
+  return `<div class="tw"><table><thead><tr>
+    <th style="width:92px">${t('date')}</th><th style="width:84px">${t('beleg')}</th><th>${t('text')}</th>
+    <th style="width:180px">${t('konto')}</th><th style="width:96px">${t('gegen')}</th>
+    <th class="num" style="width:100px">${t('brutto')}</th><th class="num" style="width:56px">USt</th>
+    <th class="num" style="width:100px">${t('netto')}</th><th style="width:84px"></th></tr></thead><tbody>
+    ${list.map(b=>{const s=split(b),k=konto(b.konto)||{};return `<tr>
+      <td>${dDE(b.datum)}</td><td>${esc(b.belegnr||'')}</td><td>${esc(b.text)}</td>
+      <td><span class="tag">${esc(b.konto)}</span> ${esc(k.name||'')}</td><td>${esc(b.gegenkonto)}</td>
+      <td class="num ${k.typ==='erloes'?'pos':k.typ==='aufwand'?'neg':''}">${eur(s.brutto)}</td>
+      <td class="num">${s.satz} %</td><td class="num">${eur(s.netto)}</td>
+      <td style="text-align:end;white-space:nowrap">
+        <button class="btn ghost sm" onclick="buchungForm('${b.id}')">${ico('edit')}</button>
+        <button class="btn danger sm" onclick="delBuchung('${b.id}')">${ico('trash')}</button></td></tr>`}).join('')}
+    </tbody></table></div>`;
+}
+VIEWS.buchungen=()=>{
+  let list=bList(PERIOD);
+  if(SEARCH) list=M().buchungen.filter(b=>(b.text+' '+(b.belegnr||'')+' '+b.konto).toLowerCase().includes(SEARCH.toLowerCase()));
+  const a=calc(list);
+  return topbar(t('buch'),SEARCH?`Suche: ${SEARCH}`:monName(PERIOD),
+    `<button class="btn ghost" onclick="go('datenimport')">${ico('imp')}Datei einlesen</button>
+     <button class="btn" onclick="buchungForm()">${ico('plus')}${t('addb')}</button>`)+`
+  ${SEARCH?`<div class="note" style="margin-bottom:14px">Suchergebnisse über alle Monate. <button class="btn ghost sm" onclick="SEARCH='';render()">zurücksetzen</button></div>`:''}
+  <div class="card">${bTable(list)}
+    <div class="row" style="margin-top:14px;justify-content:flex-end;gap:24px">
+      <span class="fit hint">${t('ein')} <b>${eurS(a.ein)}</b></span>
+      <span class="fit hint">${t('aus')} <b>${eurS(a.aus)}</b></span>
+      <span class="fit hint">${t('erg')} <b class="${a.erg>=0?'pos':'neg'}">${eurS(a.erg)}</b></span></div></div>`;
+};
+function kOpt(sel,typen){return M().konten.filter(k=>typen.includes(k.typ)).sort((a,b)=>a.nr.localeCompare(b.nr))
+  .map(k=>`<option value="${k.nr}" ${sel===k.nr?'selected':''}>${k.nr} – ${esc(k.name)}</option>`).join('')}
+function buchungForm(id){
+  const b=id?M().buchungen.find(x=>x.id===id):{datum:new Date().toISOString().slice(0,10),belegnr:'',text:'',konto:'8300',gegenkonto:'1000',betrag:'',ust:7,kst:''};
+  openModal(id?t('edit'):t('addb'),`
+   <div class="row"><div><label class="f">${t('date')}</label><input type="date" id="f_d" value="${b.datum}"></div>
+     <div><label class="f">${t('beleg')}</label><input id="f_b" value="${esc(b.belegnr||'')}" placeholder="RE-2026-014"></div></div>
+   <div class="row" style="margin-top:12px"><div><label class="f">${t('text')}</label><input id="f_t" value="${esc(b.text||'')}" placeholder="Wareneinkauf Großhandel"></div></div>
+   <div class="row" style="margin-top:12px"><div><label class="f">${t('konto')}</label>
+     <select id="f_k" onchange="const k=M().konten.find(x=>x.nr===this.value);if(k)document.getElementById('f_u').value=k.ust">${kOpt(b.konto,['erloes','aufwand','privat'])}</select></div></div>
+   <div class="row" style="margin-top:12px">
+     <div><label class="f">${t('gegen')}</label><select id="f_g">${kOpt(b.gegenkonto,['finanz'])}</select></div>
+     <div><label class="f">${t('betrag')}</label><input id="f_v" value="${b.betrag||''}" placeholder="0,00"></div>
+     <div><label class="f">${t('satz')}</label><select id="f_u">${[0,7,19].map(s=>`<option value="${s}" ${Number(b.ust)===s?'selected':''}>${s} %</option>`).join('')}</select></div></div>
+   ${M().kostenstellen.length?`<div class="row" style="margin-top:12px"><div><label class="f">${t('kst')}</label>
+     <select id="f_ks"><option value="">—</option>${M().kostenstellen.map(k=>`<option value="${k.id}" ${b.kst===k.id?'selected':''}>${esc(k.name)}</option>`).join('')}</select></div></div>`:''}
+   <div class="row" style="margin-top:20px;justify-content:flex-end">
+     <button class="btn ghost fit" onclick="closeModal()">${t('cancel')}</button>
+     <button class="btn fit" onclick="saveBuchung('${id||''}')">${t('save')}</button></div>`);
+}
+function saveBuchung(id){
+  const o={datum:$('#f_d').value,belegnr:$('#f_b').value.trim(),text:$('#f_t').value.trim(),
+    konto:$('#f_k').value,gegenkonto:$('#f_g').value,betrag:num($('#f_v').value),ust:+$('#f_u').value,
+    kst:$('#f_ks')?$('#f_ks').value:''};
+  if(!o.datum||!o.betrag){toast('Datum und Betrag fehlen');return}
+  if(id){Object.assign(M().buchungen.find(x=>x.id===id),o)} else {M().buchungen.push({id:uid(),...o})}
+  save();closeModal();render();toast('Gespeichert')
+}
+function delBuchung(id){ if(!confirm('Buchung löschen?'))return; M().buchungen=M().buchungen.filter(b=>b.id!==id);save();render() }
+
+/* ---------- Kontenrahmen ---------- */
+VIEWS.konten=()=>{
+  const ks=[...M().konten].sort((a,b)=>a.nr.localeCompare(b.nr));
+  const label={erloes:t('erloes'),aufwand:t('aufwand'),finanz:t('finanz'),privat:t('privat')};
+  const farbe={erloes:'g',aufwand:'r',finanz:'b',privat:'y'};
+  return topbar(t('konten'),'SKR03 – frei erweiterbar',
+    `<button class="btn" onclick="kontoForm()">${ico('plus')}${t('neu')}</button>`)+`
+  <div class="card"><div class="tw"><table><thead><tr>
+    <th style="width:90px">${t('nr')}</th><th>${t('name')}</th><th style="width:130px">${t('art')}</th>
+    <th class="num" style="width:80px">USt</th><th style="width:84px"></th></tr></thead><tbody>
+    ${ks.map(k=>`<tr><td><span class="tag">${esc(k.nr)}</span></td><td>${esc(k.name)}</td>
+      <td><span class="pill ${farbe[k.typ]}">${label[k.typ]}</span></td><td class="num">${k.ust} %</td>
+      <td style="text-align:end;white-space:nowrap">
+        <button class="btn ghost sm" onclick="kontoForm('${k.nr}')">${ico('edit')}</button>
+        <button class="btn danger sm" onclick="delKonto('${k.nr}')">${ico('trash')}</button></td></tr>`).join('')}
+    </tbody></table></div></div>`;
+};
+function kontoForm(nr){
+  const k=nr?konto(nr):{nr:'',name:'',typ:'aufwand',ust:19,bwa:'sonst'};
+  openModal(nr?t('edit'):t('neu'),`
+   <div class="row"><div><label class="f">${t('nr')}</label><input id="k_nr" value="${esc(k.nr)}" placeholder="4980"></div>
+     <div style="flex:2"><label class="f">${t('name')}</label><input id="k_na" value="${esc(k.name)}"></div></div>
+   <div class="row" style="margin-top:12px">
+     <div><label class="f">${t('art')}</label><select id="k_ty">
+       ${['erloes','aufwand','finanz','privat'].map(x=>`<option value="${x}" ${k.typ===x?'selected':''}>${t(x)}</option>`).join('')}</select></div>
+     <div><label class="f">${t('satz')}</label><select id="k_us">${[0,7,19].map(s=>`<option value="${s}" ${k.ust===s?'selected':''}>${s} %</option>`).join('')}</select></div>
+     <div><label class="f">BWA-Gruppe</label><select id="k_bw">
+       ${[['','—'],['umsatz','Umsatz'],['ware','Wareneinsatz'],['personal','Personal'],['raum','Raum'],['steuern','Steuern'],['vers','Versicherungen'],['kfz','Fahrzeug'],['werbung','Werbung'],['warenabgabe','Warenabgabe'],['afa','Abschreibung'],['rep','Reparatur'],['sonst','Sonstiges'],['neutral','Neutral']]
+         .map(x=>`<option value="${x[0]}" ${k.bwa===x[0]?'selected':''}>${x[1]}</option>`).join('')}</select></div></div>
+   <div class="row" style="margin-top:20px;justify-content:flex-end">
+     <button class="btn ghost fit" onclick="closeModal()">${t('cancel')}</button>
+     <button class="btn fit" onclick="saveKonto('${nr||''}')">${t('save')}</button></div>`);
+}
+function saveKonto(alt){
+  const o={nr:$('#k_nr').value.trim(),name:$('#k_na').value.trim(),typ:$('#k_ty').value,ust:+$('#k_us').value,bwa:$('#k_bw').value};
+  if(!o.nr||!o.name){toast('Nummer und Bezeichnung fehlen');return}
+  if(!alt && konto(o.nr)){toast('Nummer gibt es schon');return}
+  if(alt){Object.assign(konto(alt),o)} else {M().konten.push(o)}
+  save();closeModal();render();toast('Gespeichert')
+}
+function delKonto(nr){
+  if(M().buchungen.some(b=>b.konto===nr||b.gegenkonto===nr)){toast('Konto wird noch bebucht');return}
+  if(!confirm('Konto löschen?'))return; M().konten=M().konten.filter(k=>k.nr!==nr);save();render()
+}
+
+/* ---------- Kostenstellen ---------- */
+VIEWS.kostenstellen=()=>topbar(t('ks'),'Bereiche, Filialen oder Produktgruppen',
+  `<button class="btn" onclick="ksForm()">${ico('plus')}${t('neu')}</button>`)+`
+  <div class="card">${M().kostenstellen.length?`<table><thead><tr><th>${t('name')}</th><th>Notiz</th><th style="width:84px"></th></tr></thead><tbody>
+   ${M().kostenstellen.map(k=>`<tr><td><b>${esc(k.name)}</b></td><td>${esc(k.notiz||'')}</td>
+     <td style="text-align:end;white-space:nowrap"><button class="btn ghost sm" onclick="ksForm('${k.id}')">${ico('edit')}</button>
+     <button class="btn danger sm" onclick="delKs('${k.id}')">${ico('trash')}</button></td></tr>`).join('')}
+   </tbody></table>`:`<div class="empty">${t('keine')}</div>`}</div>`;
+function ksForm(id){ const k=id?M().kostenstellen.find(x=>x.id===id):{name:'',notiz:''};
+  openModal(id?t('edit'):t('neu'),`
+   <div class="row"><div><label class="f">${t('name')}</label><input id="s_n" value="${esc(k.name)}" placeholder="Ladenlokal Herne"></div></div>
+   <div class="row" style="margin-top:12px"><div><label class="f">Notiz</label><input id="s_z" value="${esc(k.notiz||'')}"></div></div>
+   <div class="row" style="margin-top:20px;justify-content:flex-end">
+     <button class="btn ghost fit" onclick="closeModal()">${t('cancel')}</button>
+     <button class="btn fit" onclick="saveKs('${id||''}')">${t('save')}</button></div>`) }
+function saveKs(id){ const o={name:$('#s_n').value.trim(),notiz:$('#s_z').value.trim()};
+  if(!o.name){toast('Bezeichnung fehlt');return}
+  if(id){Object.assign(M().kostenstellen.find(x=>x.id===id),o)}else{M().kostenstellen.push({id:uid(),...o})}
+  save();closeModal();render() }
+function delKs(id){ if(!confirm('Löschen?'))return; M().kostenstellen=M().kostenstellen.filter(k=>k.id!==id);save();render() }
+
+/* ---------- Firmen ---------- */
+VIEWS.mandanten=()=>topbar(t('mand'),'Mehrere Firmen nebeneinander',
+  `<button class="btn" onclick="mandForm()">${ico('plus')}${t('neu')}</button>`)+`
+  <div class="grid g3">${DATA.mandanten.map(m=>`<div class="card">
+    <div style="display:flex;align-items:center;gap:11px;margin-bottom:14px">
+      <span class="av2" style="width:42px;height:42px;border-radius:13px;background:var(--t-blue)">${ico('build')}</span>
+      <span><b style="font-size:15px">${esc(m.name)}</b><br><span class="hint">${esc(m.s.ort||'—')}</span></span></div>
+    <div class="listrow" style="border:0;padding:5px 0"><span class="s">Buchungen</span><span class="v">${m.buchungen.length}</span></div>
+    <div class="listrow" style="padding:5px 0"><span class="s">Konten</span><span class="v">${m.konten.length}</span></div>
+    <div class="listrow" style="padding:5px 0"><span class="s">Mitarbeiter</span><span class="v">${m.mitarbeiter.length}</span></div>
+    <div class="row" style="margin-top:14px">
+      ${m.id===DATA.aktiv?'<span class="pill g fit">aktiv</span>':`<button class="btn ghost sm fit" onclick="switchMandant('${m.id}')">öffnen</button>`}
+      <button class="btn ghost sm fit" onclick="mandForm('${m.id}')">${ico('edit')}</button>
+      ${DATA.mandanten.length>1?`<button class="btn danger sm fit" onclick="delMand('${m.id}')">${ico('trash')}</button>`:''}</div>
+  </div>`).join('')}</div>`;
+function mandForm(id){ const m=id?DATA.mandanten.find(x=>x.id===id):{name:''};
+  openModal(id?t('edit'):t('neu'),`
+   <div class="row"><div><label class="f">${t('firma')}</label><input id="m_n" value="${esc(m.name||'')}" placeholder="Süßwaren Laden GmbH"></div></div>
+   <div class="hint" style="margin-top:10px">Jede Firma hat eigene Konten, Buchungen, Mitarbeiter und Einstellungen.</div>
+   <div class="row" style="margin-top:20px;justify-content:flex-end">
+     <button class="btn ghost fit" onclick="closeModal()">${t('cancel')}</button>
+     <button class="btn fit" onclick="saveMand('${id||''}')">${t('save')}</button></div>`) }
+function saveMand(id){ const n=$('#m_n').value.trim(); if(!n){toast('Name fehlt');return}
+  if(id){const m=DATA.mandanten.find(x=>x.id===id);m.name=n;m.s.firma=m.s.firma||n}
+  else{const m=neuerMandant(n);DATA.mandanten.push(m);DATA.aktiv=m.id}
+  save();closeModal();renderNav();render() }
+function delMand(id){ if(!confirm('Firma mit allen Daten löschen?'))return;
+  DATA.mandanten=DATA.mandanten.filter(m=>m.id!==id); if(DATA.aktiv===id)DATA.aktiv=DATA.mandanten[0].id;
+  save();renderNav();render() }
+
+/* ---------- Einstellungen ---------- */
+VIEWS.einstellungen=()=>{ const s=M().s;
+  return topbar(t('einst'),M().name)+`
+  <div class="grid g2">
+   <div class="card"><h3>${t('firma')}</h3>
+     <div class="row"><div><label class="f">${t('firma')}</label><input id="e_firma" value="${esc(s.firma)}"></div>
+       <div><label class="f">${t('inhaber')}</label><input id="e_inhaber" value="${esc(s.inhaber)}"></div></div>
+     <div class="row" style="margin-top:12px"><div style="flex:2"><label class="f">${t('strasse')}</label><input id="e_strasse" value="${esc(s.strasse)}"></div>
+       <div><label class="f">${t('plz')}</label><input id="e_plz" value="${esc(s.plz)}"></div>
+       <div><label class="f">${t('ort')}</label><input id="e_ort" value="${esc(s.ort)}"></div></div>
+     <div class="row" style="margin-top:12px"><div><label class="f">${t('tel')}</label><input id="e_tel" value="${esc(s.tel)}"></div>
+       <div><label class="f">${t('mail')}</label><input id="e_mail" value="${esc(s.mail)}"></div></div>
+     <div class="row" style="margin-top:12px"><div><label class="f">${t('stnr')}</label><input id="e_stnr" value="${esc(s.stnr)}"></div>
+       <div><label class="f">${t('ustid')}</label><input id="e_ustid" value="${esc(s.ustid)}"></div></div>
+     <button class="btn wide" style="margin-top:16px" onclick="saveEinst()">${t('save')}</button>
+   </div>
+   <div>
+    <div class="card"><h3>${t('logo')}</h3>
+      <div class="logobox">${s.logo?`<img src="${s.logo}">`:'<span class="hint">Noch kein Logo hinterlegt</span>'}</div>
+      <div class="row" style="margin-top:12px"><input type="file" accept="image/*" onchange="uploadLogo(this)">
+        ${s.logo?`<button class="btn danger sm fit" onclick="M().s.logo='';save();render()">${t('del')}</button>`:''}</div>
+      <div class="hint" style="margin-top:8px">Erscheint später auf jedem PDF und auf den Stundenzetteln.</div></div>
+    <div class="card" style="margin-top:14px"><h3>Steuer und Jahr</h3>
+      <div class="row"><div><label class="f">${t('gewinn')}</label><select id="e_gewinn">
+        <option value="euer" ${s.gewinn==='euer'?'selected':''}>EÜR</option>
+        <option value="bilanz" ${s.gewinn==='bilanz'?'selected':''}>Bilanz</option></select></div>
+        <div><label class="f">${t('wj')}</label><input id="e_wj" value="${esc(s.wj)}"></div></div>
+      <div class="row" style="margin-top:12px"><div><label class="f">Umsatzsteuer</label><select id="e_klein">
+        <option value="0" ${!s.klein?'selected':''}>Regelbesteuert</option>
+        <option value="1" ${s.klein?'selected':''}>${t('klein')}</option></select></div>
+        <div><label class="f">Kassenanfangsbestand</label><input id="e_ka" value="${s.kassenAnfang||0}"></div></div>
+      <button class="btn wide" style="margin-top:16px" onclick="saveEinst()">${t('save')}</button></div>
+    <div class="card" style="margin-top:14px"><h3>${t('sprache')}</h3>
+      <div class="seg" style="width:100%">
+        ${[['de','Deutsch'],['en','English'],['ar','العربية']].map(x=>`<button style="flex:1" class="${DATA.sprache===x[0]?'on':''}" onclick="setSprache('${x[0]}')">${x[1]}</button>`).join('')}</div>
+      <div class="hint" style="margin-top:10px">Arabisch schaltet die Oberfläche auf Rechts-nach-links um.</div></div>
+   </div></div>`;
+};
+function saveEinst(){ const s=M().s;
+  ['firma','inhaber','strasse','plz','ort','tel','mail','stnr','ustid'].forEach(k=>{const el=$('#e_'+k);if(el)s[k]=el.value.trim()});
+  if($('#e_gewinn'))s.gewinn=$('#e_gewinn').value;
+  if($('#e_wj'))s.wj=$('#e_wj').value;
+  if($('#e_klein'))s.klein=$('#e_klein').value==='1';
+  if($('#e_ka'))s.kassenAnfang=num($('#e_ka').value);
+  if(s.firma)M().name=s.firma;
+  save();renderNav();render();toast('Gespeichert')
+}
+function uploadLogo(inp){ const f=inp.files[0]; if(!f)return;
+  if(f.size>900000){toast('Bild zu groß, bitte unter 900 KB');return}
+  const r=new FileReader(); r.onload=()=>{M().s.logo=r.result;save();render()}; r.readAsDataURL(f) }
+
+/* ---------- Sicherung ---------- */
+VIEWS.sicherung=()=>topbar(t('sich'),'Alle Firmen in einer Datei')+`
+  <div class="grid g2">
+   <div class="card"><h3>${t('exp')}</h3>
+     <p class="hint">Lädt den gesamten Datenbestand als JSON-Datei herunter. In der Desktop-App läuft das später automatisch wöchentlich nach Google Drive.</p>
+     <button class="btn wide" style="margin-top:12px" onclick="expJSON()">${ico('imp',"transform:rotate(180deg)")}${t('exp')}</button></div>
+   <div class="card"><h3>${t('impj')}</h3>
+     <p class="hint">Achtung: überschreibt den aktuellen Bestand vollständig.</p>
+     <input type="file" accept="application/json" style="margin-top:12px" onchange="impJSON(this)"></div>
+  </div>
+  <div class="card" style="margin-top:14px"><h3>Datenbestand</h3>
+    ${DATA.mandanten.map(m=>`<div class="listrow"><span class="av2" style="background:var(--t-mint)">${ico('build')}</span>
+      <span><span class="n">${esc(m.name)}</span><br><span class="s">${m.buchungen.length} Buchungen · ${m.konten.length} Konten · ${m.mitarbeiter.length} Mitarbeiter</span></span></div>`).join('')}
+  </div>`;
+function expJSON(){ const b=new Blob([JSON.stringify(DATA,null,2)],{type:'application/json'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(b);
+  a.download='kontor-sicherung-'+new Date().toISOString().slice(0,10)+'.json'; a.click(); toast('Datei erstellt') }
+function impJSON(inp){ const f=inp.files[0]; if(!f)return;
+  if(!confirm('Aktuellen Bestand überschreiben?'))return;
+  const r=new FileReader(); r.onload=()=>{ try{ const d=JSON.parse(r.result);
+    if(!d.mandanten)throw 0; DATA=d; if(!M())DATA.aktiv=DATA.mandanten[0].id;
+    save();renderNav();render();toast('Eingelesen') }catch(e){toast('Datei nicht lesbar')} };
+  r.readAsText(f) }
+
+/* ---------- Platzhalter ---------- */
+const SOON={kasse:['Kassenbuch','P1'],bwa:['BWA','P2'],euer:['EÜR','P2'],ustva:['Umsatzsteuer-Voranmeldung','P2'],
+  mitarbeiter:['Mitarbeiter','P4'],stunden:['Stundenerfassung','P4']};
+Object.keys(SOON).forEach(k=>{ VIEWS[k]=()=>topbar(SOON[k][0],'')+`
+  <div class="card"><div class="soon"><span class="ph">${t('phase')} ${SOON[k][1]}</span>
+    <h2 style="margin:0">${SOON[k][0]}</h2>
+    <p class="hint" style="max-width:420px;margin:0">Das Gerüst steht. Dieser Bereich wird in Claude Code gebaut, sobald das Design hier passt.</p>
+    <button class="btn ghost" onclick="go('dashboard')">Zurück zur Übersicht</button></div></div>` });
+
+/* ---------- Modal und Start ---------- */
+function openModal(title,html){ $('#modal').innerHTML=`<div class="mask" onclick="if(event.target===this)closeModal()">
+  <div class="modal"><div class="mhead"><h2 style="margin:0">${esc(title)}</h2>
+    <button class="x" onclick="closeModal()">${ico('x')}</button></div>${html}</div></div>` }
+function closeModal(){ $('#modal').innerHTML='' }
+function render(){ $('#view').innerHTML=(VIEWS[TAB]||VIEWS.dashboard)() }
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()});
+load().then(()=>{renderNav();render()});
+</script>
+<script>
+/* ==========================================================
+   Datei-Import: Excel, CSV, JSON, Markdown-Tabelle
+   ========================================================== */
+let IMP={step:0,head:[],rows:[],map:{},file:'',kand:[]};
+
+const STDREGELN=[
+ ['sumup,kartenumsatz,kartenzahlung','1360'],['bareinzahlung,tageskasse,einzahlung','1360'],
+ ['großhandel,grosshandel,süßwaren,suesswaren,wareneingang,lieferant','3300'],
+ ['stadtwerke,strom,gas,wasser,energie','4240'],['miete,mietverwaltung,pacht','4210'],
+ ['lohn,gehalt,minijob','4100'],['versicherung','4360'],['telekom,vodafone,internet,telefon','4920'],
+ ['steuerberat,buchführung','4955'],['werbung,anzeige,google,meta','4600'],
+ ['gebühr,entgelt,kontoführung','4970']
+].map(r=>({id:uid(),wort:r[0],konto:r[1]}));
+
+function stdRegeln(){ M().regeln=JSON.parse(JSON.stringify(STDREGELN)); save(); render(); toast('Regeln geladen') }
+
+function pDatum(v){
+  if(v==null||v==='') return '';
+  if(typeof v==='number'&&v>20000&&v<60000){ const d=new Date(Date.UTC(1899,11,30+v)); return d.toISOString().slice(0,10) }
+  const s=String(v).trim();
+  let m=s.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2,4})/);
+  if(m){ let y=m[3].length===2?'20'+m[3]:m[3]; return y+'-'+m[2].padStart(2,'0')+'-'+m[1].padStart(2,'0') }
+  m=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if(m) return m[1]+'-'+m[2].padStart(2,'0')+'-'+m[3].padStart(2,'0');
+  return '';
+}
+function pSatz(v){ const n=num(v); if(n>=15) return 19; if(n>=5) return 7; return 0 }
+
+function guess(head){
+  const P={datum:/datum|buchungstag|date|tag$|wertstell/i, belegnr:/beleg|bon|rechnungsnr|dokument|^nr$|_id/i,
+    text:/verwendung|zweck|text|artikel|beschreib|description|bezeichnung/i,
+    text2:/empf|auftraggeber|name|kassierer|kategorie|payee/i,
+    betrag:/betrag|gesamt|summe|amount|brutto|wert$|preis/i, ust:/mwst|ust|steuer|tax|vat/i,
+    konto:/konto|account/i, zahlart:/zahlart|zahlung|payment/i};
+  const m={};
+  Object.entries(P).forEach(([k,rx])=>{ const i=head.findIndex(h=>rx.test(String(h))); if(i>=0)m[k]=String(i) });
+  return m;
+}
+function delimOf(txt){ const l=txt.split(/\r?\n/).find(x=>x.trim())||'';
+  const c={';':(l.match(/;/g)||[]).length,'\t':(l.match(/\t/g)||[]).length,',':(l.match(/,/g)||[]).length};
+  return Object.entries(c).sort((a,b)=>b[1]-a[1])[0][0] }
+function splitCSV(line,d){ const out=[];let cur='',q=false;
+  for(let i=0;i<line.length;i++){ const c=line[i];
+    if(c==='"'){ if(q&&line[i+1]==='"'){cur+='"';i++} else q=!q }
+    else if(c===d&&!q){out.push(cur);cur=''} else cur+=c }
+  out.push(cur); return out.map(x=>x.trim()) }
+
+function leseDatei(inp){
+  const f=inp.files[0]; if(!f) return;
+  IMP.file=f.name; const ext=(f.name.split('.').pop()||'').toLowerCase();
+  const fertig=(head,rows)=>{ IMP.head=head.map(h=>String(h||'').trim()); IMP.rows=rows.filter(r=>r.some(c=>c!==''&&c!=null));
+    IMP.map=guess(IMP.head); IMP.step=1; render(); };
+  if(ext==='xlsx'||ext==='xls'){
+    const r=new FileReader();
+    r.onload=e=>{ try{ const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
+      const sh=wb.Sheets[wb.SheetNames[0]];
+      const aoa=XLSX.utils.sheet_to_json(sh,{header:1,raw:true,defval:''});
+      fertig(aoa[0]||[],aoa.slice(1)); }catch(err){toast('Datei nicht lesbar')} };
+    r.readAsArrayBuffer(f); return;
+  }
+  const r=new FileReader();
+  r.onload=e=>{ const txt=e.target.result;
+    try{
+      if(ext==='json'){ const j=JSON.parse(txt); const arr=Array.isArray(j)?j:(j.buchungen||[]);
+        const head=Object.keys(arr[0]||{}); fertig(head,arr.map(o=>head.map(h=>o[h]))); return }
+      if(ext==='md'||ext==='markdown'){
+        const zeilen=txt.split(/\r?\n/).filter(z=>z.includes('|'));
+        const zell=z=>z.replace(/^\||\|$/g,'').split('|').map(x=>x.trim());
+        const head=zell(zeilen[0]);
+        const rows=zeilen.slice(1).filter(z=>!/^[\s|:-]+$/.test(z)).map(zell);
+        fertig(head,rows); return }
+      const d=delimOf(txt);
+      const zeilen=txt.split(/\r?\n/).filter(z=>z.trim());
+      fertig(splitCSV(zeilen[0],d),zeilen.slice(1).map(z=>splitCSV(z,d)));
+    }catch(err){ toast('Datei nicht lesbar') } };
+  r.readAsText(f,'utf-8');
+}
+
+function regelKonto(text,vorz){
+  const s=(text||'').toLowerCase();
+  for(const r of (M().regeln||[])){
+    if(r.wort.split(',').some(w=>w.trim()&&s.includes(w.trim().toLowerCase()))) return r.konto;
+  }
+  return vorz>=0?'8300':'4980';
+}
+function baueKandidaten(){
+  const g=k=>IMP.map[k]!==undefined&&IMP.map[k]!==''?+IMP.map[k]:-1;
+  const c={datum:g('datum'),beleg:g('belegnr'),text:g('text'),text2:g('text2'),betrag:g('betrag'),ust:g('ust'),zahlart:g('zahlart')};
+  IMP.kand=IMP.rows.map(r=>{
+    const txt=[c.text2>=0?r[c.text2]:'',c.text>=0?r[c.text]:''].filter(x=>String(x||'').trim()).join(' – ');
+    const betrag=num(c.betrag>=0?r[c.betrag]:0);
+    const datum=pDatum(c.datum>=0?r[c.datum]:'');
+    const kn=regelKonto(txt,betrag);
+    const k=konto(kn);
+    const za=String(c.zahlart>=0?r[c.zahlart]:'').toLowerCase();
+    const gegen=/bar|cash|kasse/.test(za)?'1000':(/karte|ec|sumup|card/.test(za)?'1210':'1200');
+    const dup=M().buchungen.some(b=>b.datum===datum&&Math.abs(Math.abs(b.betrag)-Math.abs(betrag))<0.005&&b.text===txt);
+    return {an:!dup&&!!datum&&!!betrag, datum, belegnr:String(c.beleg>=0?r[c.beleg]:'').trim(), text:txt,
+      betrag:Math.abs(betrag), vorz:betrag<0?-1:1, konto:kn, gegenkonto:gegen,
+      ust:c.ust>=0?pSatz(r[c.ust]):(k?k.ust:0), dup};
+  });
+  IMP.step=2; render();
+}
+function setK(i,v){ IMP.kand[i].konto=v; const k=konto(v); if(k)IMP.kand[i].ust=k.ust; render() }
+function setG(i,v){ IMP.kand[i].gegenkonto=v }
+function setAn(i,v){ IMP.kand[i].an=v }
+function uebernehmen(){
+  const ok=IMP.kand.filter(k=>k.an);
+  if(!ok.length){toast('Nichts ausgewählt');return}
+  ok.forEach(k=>M().buchungen.push({id:uid(),datum:k.datum,belegnr:k.belegnr,text:k.text,
+    konto:k.konto,gegenkonto:k.gegenkonto,betrag:k.betrag,ust:k.ust,kst:''}));
+  save(); IMP={step:0,head:[],rows:[],map:{},file:'',kand:[]};
+  TAB='buchungen'; renderNav(); render(); toast(ok.length+' Buchungen übernommen');
+}
+function impReset(){ IMP={step:0,head:[],rows:[],map:{},file:'',kand:[]}; render() }
+
+VIEWS.datenimport=()=>{
+  const kopf=topbar('Import und Export','Excel, CSV, JSON oder Markdown');
+  if(IMP.step===0) return kopf+`
+   <div class="grid g2">
+    <div class="card"><h3>Datei einlesen</h3>
+      <div class="logobox" style="padding:26px">
+        <div style="display:flex;justify-content:center;margin-bottom:10px;color:var(--muted)">${ico('imp',"width:30px;height:30px")}</div>
+        <input type="file" accept=".xlsx,.xls,.csv,.txt,.tsv,.json,.md" onchange="leseDatei(this)">
+        <div class="hint" style="margin-top:10px">Excel, CSV mit Semikolon oder Komma, JSON oder Markdown-Tabelle</div></div>
+      <div class="note" style="margin-top:14px">Die Spalten erkenne ich automatisch. Du siehst vor dem Übernehmen jede Zeile und kannst Konto und Zeile einzeln ändern.</div>
+    </div>
+    <div class="card"><h3>Zuordnungsregeln</h3>
+      <p class="hint">Stichwort im Buchungstext, dahinter das Konto. Wird beim Einlesen automatisch angewendet.</p>
+      ${(M().regeln||[]).length?`<div class="tw" style="max-height:330px;overflow:auto"><table><tbody>
+        ${M().regeln.map(r=>`<tr><td>${esc(r.wort)}</td><td style="width:150px"><span class="tag">${esc(r.konto)}</span> ${esc((konto(r.konto)||{}).name||'')}</td>
+          <td style="width:84px;text-align:end;white-space:nowrap">
+            <button class="btn ghost sm" onclick="regelForm('${r.id}')">${ico('edit')}</button>
+            <button class="btn danger sm" onclick="delRegel('${r.id}')">${ico('trash')}</button></td></tr>`).join('')}
+        </tbody></table></div>`:`<div class="empty">Noch keine Regeln.</div>`}
+      <div class="row" style="margin-top:12px">
+        <button class="btn ghost sm fit" onclick="regelForm()">${ico('plus')}Regel anlegen</button>
+        <button class="btn ghost sm fit" onclick="stdRegeln()">Standardregeln laden</button></div>
+    </div>
+   </div>
+   <div class="card" style="margin-top:14px"><h3>Export</h3>
+     <div class="row"><button class="btn ghost fit" onclick="expBuchungenCSV()">Buchungen als CSV</button>
+       <button class="btn ghost fit" onclick="go('sicherung')">Komplette Sicherung</button></div>
+     <div class="hint" style="margin-top:10px">Excel, PDF, DATEV und das Monatspaket kommen in Phase 3.</div></div>`;
+
+  if(IMP.step===1){
+    const felder=[['datum','Datum',1],['betrag','Betrag',1],['text','Buchungstext',0],['text2','Zweiter Textteil',0],
+      ['belegnr','Belegnummer',0],['ust','Steuersatz',0],['zahlart','Zahlart',0]];
+    const opt=k=>`<option value="">—</option>`+IMP.head.map((h,i)=>`<option value="${i}" ${String(IMP.map[k])===String(i)?'selected':''}>${esc(h||('Spalte '+(i+1)))}</option>`).join('');
+    return kopf+`<div class="card">
+      <div class="row" style="margin-bottom:16px"><div class="fit"><span class="pill b">Schritt 1 von 2</span></div>
+        <div class="fit hint">${esc(IMP.file)} · ${IMP.rows.length} Zeilen</div>
+        <div class="sp"></div><button class="btn ghost sm fit" onclick="impReset()">Andere Datei</button></div>
+      <h3>Spalten zuordnen</h3>
+      <div class="grid g3">${felder.map(f=>`<div><label class="f">${f[1]}${f[2]?' *':''}</label>
+        <select onchange="IMP.map['${f[0]}']=this.value">${opt(f[0])}</select></div>`).join('')}</div>
+      <h3 style="margin-top:22px">Vorschau der Datei</h3>
+      <div class="tw"><table><thead><tr>${IMP.head.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>
+        ${IMP.rows.slice(0,5).map(r=>`<tr>${IMP.head.map((_,i)=>`<td>${esc(r[i])}</td>`).join('')}</tr>`).join('')}
+      </tbody></table></div>
+      <div class="row" style="margin-top:18px;justify-content:flex-end">
+        <button class="btn ghost fit" onclick="impReset()">${t('cancel')}</button>
+        <button class="btn fit" onclick="baueKandidaten()">Weiter zur Prüfung</button></div></div>`;
+  }
+
+  const an=IMP.kand.filter(k=>k.an).length, dup=IMP.kand.filter(k=>k.dup).length;
+  const sum=IMP.kand.filter(k=>k.an).reduce((s,k)=>s+k.betrag,0);
+  return kopf+`<div class="card">
+    <div class="row" style="margin-bottom:16px"><div class="fit"><span class="pill b">Schritt 2 von 2</span></div>
+      <div class="fit hint">${an} von ${IMP.kand.length} ausgewählt · Summe ${eurS(sum)}${dup?` · <span class="pill y">${dup} Dubletten übersprungen</span>`:''}</div>
+      <div class="sp"></div><button class="btn ghost sm fit" onclick="IMP.step=1;render()">Zurück</button></div>
+    <div class="tw" style="max-height:520px;overflow:auto"><table><thead><tr>
+      <th style="width:34px"></th><th style="width:92px">Datum</th><th>Text</th>
+      <th style="width:210px">Konto</th><th style="width:130px">Gegenkonto</th>
+      <th class="num" style="width:100px">Betrag</th><th class="num" style="width:56px">USt</th></tr></thead><tbody>
+      ${IMP.kand.map((k,i)=>`<tr style="${k.dup?'opacity:.55':''}">
+        <td><input type="checkbox" style="width:16px" ${k.an?'checked':''} onchange="setAn(${i},this.checked)"></td>
+        <td>${dDE(k.datum)||'<span class="pill r">fehlt</span>'}</td>
+        <td>${esc(k.text)}${k.dup?' <span class="pill y">Dublette</span>':''}</td>
+        <td><select onchange="setK(${i},this.value)" style="padding:5px 7px;font-size:12px">${kOpt(k.konto,['erloes','aufwand','privat','finanz'])}</select></td>
+        <td><select onchange="setG(${i},this.value)" style="padding:5px 7px;font-size:12px">${kOpt(k.gegenkonto,['finanz'])}</select></td>
+        <td class="num ${k.vorz<0?'neg':'pos'}">${eur(k.betrag)}</td><td class="num">${k.ust} %</td></tr>`).join('')}
+    </tbody></table></div>
+    <div class="row" style="margin-top:18px;justify-content:flex-end">
+      <button class="btn ghost fit" onclick="impReset()">${t('cancel')}</button>
+      <button class="btn fit" onclick="uebernehmen()">${an} Buchungen übernehmen</button></div></div>`;
+};
+
+function regelForm(id){ const r=id?M().regeln.find(x=>x.id===id):{wort:'',konto:'4980'};
+  openModal(id?'Regel bearbeiten':'Regel anlegen',`
+   <div class="row"><div><label class="f">Stichwörter, mit Komma getrennt</label>
+     <input id="r_w" value="${esc(r.wort)}" placeholder="stadtwerke, strom, gas"></div></div>
+   <div class="row" style="margin-top:12px"><div><label class="f">Konto</label>
+     <select id="r_k">${kOpt(r.konto,['erloes','aufwand','privat','finanz'])}</select></div></div>
+   <div class="row" style="margin-top:20px;justify-content:flex-end">
+     <button class="btn ghost fit" onclick="closeModal()">${t('cancel')}</button>
+     <button class="btn fit" onclick="saveRegel('${id||''}')">${t('save')}</button></div>`) }
+function saveRegel(id){ const o={wort:$('#r_w').value.trim().toLowerCase(),konto:$('#r_k').value};
+  if(!o.wort){toast('Stichwort fehlt');return}
+  M().regeln=M().regeln||[];
+  if(id){Object.assign(M().regeln.find(x=>x.id===id),o)}else{M().regeln.push({id:uid(),...o})}
+  save();closeModal();render() }
+function delRegel(id){ M().regeln=M().regeln.filter(r=>r.id!==id);save();render() }
+
+function expBuchungenCSV(){
+  const rows=[['Datum','Beleg','Text','Konto','Kontobezeichnung','Gegenkonto','Brutto','USt-Satz','Netto']];
+  M().buchungen.slice().sort((a,b)=>a.datum.localeCompare(b.datum)).forEach(b=>{ const s=split(b),k=konto(b.konto)||{};
+    rows.push([dDE(b.datum),b.belegnr||'',b.text,b.konto,k.name||'',b.gegenkonto,
+      eur(s.brutto),s.satz+'%',eur(s.netto)]) });
+  const csv='﻿'+rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(';')).join('\n');
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  a.download='buchungen-'+M().name.replace(/\W+/g,'-').toLowerCase()+'.csv'; a.click(); toast('CSV erstellt');
+}
+</script>
