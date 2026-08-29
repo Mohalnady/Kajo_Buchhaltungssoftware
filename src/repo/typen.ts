@@ -19,11 +19,27 @@ export interface MandantEinstellungen {
   kleinunternehmer: boolean;
 }
 
+export interface GutscheinAusgabe {
+  nummer: string;
+  ausgabe_datum: string;
+  betrag: number;
+  zahlungskonto: string; // Finanzkonto, das den Gegenwert erhält (Kasse/Bank/Karte)
+}
+
+export interface GutscheinEinloesung {
+  id: string;
+  betrag: number;
+  datum: string;
+  erloesKonto: string; // Erlöskonto mit dem Steuersatz der gekauften Ware
+}
+
 export interface Datenquelle {
   modus: "tauri" | "vorschau";
 
   mandantEinstellungen(): Promise<MandantEinstellungen>;
   gutscheine(): Promise<Gutschein[]>;
+  gutscheinAusgeben(eingabe: GutscheinAusgabe): Promise<void>;
+  gutscheinEinloesen(eingabe: GutscheinEinloesung): Promise<LoeschErgebnis>;
 
   konten(): Promise<Konto[]>;
   kontoSpeichern(konto: Konto): Promise<void>;

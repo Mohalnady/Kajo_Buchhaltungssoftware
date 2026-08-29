@@ -73,4 +73,47 @@ describe("Vorschau-Datenquelle", () => {
     await repo.buchungLoeschen(id);
     expect((await repo.buchungen()).some((b) => b.id === id)).toBe(false);
   });
+
+  it("bucht die Gutschein-Ausgabe als Verbindlichkeit auf 1700, nicht als Umsatz", async () => {
+    const repo = erstelleVorschauDatenquelle();
+    const buchungenVorher = (await repo.buchungen()).length;
+    await repo.gutscheinAusgeben({ nummer: "G-TEST-1", ausgabe_datum: "2026-08-15", betrag: 30, zahlungskonto: "1000" });
+
+    const gutscheine = await repo.gutscheine();
+    expect(gutscheine.some((g) => g.nummer === "G-TEST-1" && g.status === "offen")).toBe(true);
+
+    const buchungen = await repo.buchungen();
+    expect(buchungen.length).toBe(buchungenVorher + 1);
+    const neue = buchungen.find((b) => b.text.includes("G-TEST-1"));
+    expect(neue?.konto).toBe("1700");
+    expect(neue?.gegenkonto).toBe("1000");
+    expect(neue?.betrag_brutto).toBe(30);
+  });
+
+  it("bucht die Gutschein-Einlösung als Erlös gegen 1700 und aktualisiert den Status", async () => {
+    const repo = erstelleVorschauDatenquelle();
+    await repo.gutscheinAusgeben({ nummer: "G-TEST-2", ausgabe_datum: "2026-08-01", betrag: 40, zahlungskonto: "1000" });
+    const gutschein = (await repo.gutscheine()).find((g) => g.nummer === "G-TEST-2")!;
+
+    const ergebnis = await repo.gutscheinEinloesen({ id: gutschein.id!, betrag: 40, datum: "2026-08-20", erloesKonto: "8400" });
+    expect(ergebnis.ok).toBe(true);
+
+    const aktualisiert = (await repo.gutscheine()).find((g) => g.id === gutschein.id);
+    expect(aktualisiert?.status).toBe("eingeloest");
+    expect(aktualisiert?.eingeloest_betrag).toBe(40);
+
+    const buchung = (await repo.buchungen()).find((b) => b.text.includes("eingelöst G-TEST-2"));
+    expect(buchung?.konto).toBe("8400");
+    expect(buchung?.gegenkonto).toBe("1700");
+    expect(buchung?.ust_satz).toBe(19); // Steuersatz von Konto 8400
+  });
+
+  it("verweigert das Einlösen eines höheren Betrags als den Restbetrag", async () => {
+    const repo = erstelleVorschauDatenquelle();
+    await repo.gutscheinAusgeben({ nummer: "G-TEST-3", ausgabe_datum: "2026-08-01", betrag: 10, zahlungskonto: "1000" });
+    const gutschein = (await repo.gutscheine()).find((g) => g.nummer === "G-TEST-3")!;
+
+    const ergebnis = await repo.gutscheinEinloesen({ id: gutschein.id!, betrag: 20, datum: "2026-08-20", erloesKonto: "8400" });
+    expect(ergebnis.ok).toBe(false);
+  });
 });

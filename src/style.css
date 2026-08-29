@@ -279,6 +279,14 @@ main {
   background: var(--t-yellow);
   color: #8a6a12;
 }
+.pill.g {
+  background: var(--t-mint);
+  color: #2c7a44;
+}
+.pill.b {
+  background: var(--t-blue);
+  color: #2a5ca5;
+}
 .pill.r {
   background: var(--t-rose);
   color: #a33b58;

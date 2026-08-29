@@ -5,6 +5,9 @@
 import type Database from "@tauri-apps/plugin-sql";
 import type { Buchung, Konto, Kostenstelle } from "../lib/types.ts";
 import type { Gutschein } from "../lib/gutschein.ts";
+import { offenerBetrag, statusNachEinloesung } from "../lib/gutschein.ts";
+import { round2 } from "../lib/numbers.ts";
+import { uid } from "../lib/uid.ts";
 import type { Datenquelle, LoeschErgebnis, MandantEinstellungen } from "./typen.ts";
 
 interface KontoZeile {
@@ -54,9 +57,44 @@ export function erstelleTauriDatenquelle(db: Database): Datenquelle {
 
     async gutscheine() {
       const zeilen = await db.select<Gutschein[]>(
-        "SELECT nummer, betrag, eingeloest_betrag, status FROM gutschein",
+        "SELECT id, nummer, ausgabe_datum, betrag, eingeloest_betrag, eingeloest_datum, status FROM gutschein ORDER BY ausgabe_datum DESC",
       );
-      return zeilen;
+      return zeilen.map((z) => ({ ...z, eingeloest_datum: z.eingeloest_datum ?? undefined }));
+    },
+
+    async gutscheinAusgeben(eingabe) {
+      await db.execute(
+        "INSERT INTO gutschein (id, nummer, ausgabe_datum, betrag, eingeloest_betrag, status) VALUES ($1,$2,$3,$4,0,'offen')",
+        [uid(), eingabe.nummer, eingabe.ausgabe_datum, eingabe.betrag],
+      );
+      await db.execute(
+        "INSERT INTO buchung (id, datum, belegnr, text, konto, gegenkonto, betrag_brutto, ust_satz, quelle, storniert) VALUES ($1,$2,'',$3,'1700',$4,$5,0,'manuell',0)",
+        [uid(), eingabe.ausgabe_datum, `Gutschein ausgegeben ${eingabe.nummer}`, eingabe.zahlungskonto, eingabe.betrag],
+      );
+    },
+
+    async gutscheinEinloesen(eingabe): Promise<LoeschErgebnis> {
+      const zeilen = await db.select<Gutschein[]>(
+        "SELECT id, nummer, betrag, eingeloest_betrag, status FROM gutschein WHERE id = $1",
+        [eingabe.id],
+      );
+      const g = zeilen[0];
+      if (!g) return { ok: false, grund: "Gutschein nicht gefunden." };
+      if (round2(eingabe.betrag) > offenerBetrag(g)) {
+        return { ok: false, grund: "Betrag übersteigt den Restbetrag des Gutscheins." };
+      }
+      const kontoZeilen = await db.select<{ ust_satz: number }[]>("SELECT ust_satz FROM konto WHERE nr = $1", [eingabe.erloesKonto]);
+      const neuerStatus = statusNachEinloesung(g, eingabe.betrag);
+      const neuEingeloest = round2(g.eingeloest_betrag + eingabe.betrag);
+      await db.execute(
+        "UPDATE gutschein SET eingeloest_betrag=$2, eingeloest_datum=$3, status=$4 WHERE id=$1",
+        [eingabe.id, neuEingeloest, eingabe.datum, neuerStatus],
+      );
+      await db.execute(
+        "INSERT INTO buchung (id, datum, belegnr, text, konto, gegenkonto, betrag_brutto, ust_satz, quelle, storniert) VALUES ($1,$2,'',$3,$4,'1700',$5,$6,'manuell',0)",
+        [uid(), eingabe.datum, `Gutschein eingelöst ${g.nummer}`, eingabe.erloesKonto, eingabe.betrag, kontoZeilen[0]?.ust_satz ?? 0],
+      );
+      return { ok: true };
     },
 
     async konten() {

@@ -1,8 +1,9 @@
 import "./style.css";
 import { SPRACHEN, t, type Sprache } from "./i18n.ts";
 import { calc } from "./lib/buchungen.ts";
-import { kassenstand } from "./lib/kasse.ts";
-import { offeneGutscheinSumme } from "./lib/gutschein.ts";
+import { kassenstand, kassenverlauf } from "./lib/kasse.ts";
+import { offenerBetrag, offeneGutscheinSumme, type Gutschein } from "./lib/gutschein.ts";
+import { naechsteBelegnummer } from "./lib/belegnummer.ts";
 import { formatEur, parseNumber } from "./lib/numbers.ts";
 import { uid } from "./lib/uid.ts";
 import type { Buchung, Konto, Kostenstelle } from "./lib/types.ts";
@@ -32,6 +33,7 @@ const ICONS: Record<string, string> = {
   build: "M3 21h18M5 21V7l7-4 7 4v14M9 9h.01M9 13h.01M9 17h.01M15 9h.01M15 13h.01M15 17h.01",
   gear: "M12 15.5a3.5 3.5 0 1 0-3.5-3.5 3.5 3.5 0 0 0 3.5 3.5zM19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1v.3a2 2 0 0 1-4 0v-.2a1.6 1.6 0 0 0-2.8-1.1l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0-1.1-2.7H3a2 2 0 0 1 0-4h.2a1.6 1.6 0 0 0 1.1-2.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 2.7-1.1V3a2 2 0 0 1 4 0v.2a1.6 1.6 0 0 0 2.8 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0 1.1 2.7h.3a2 2 0 0 1 0 4h-.2a1.6 1.6 0 0 0-1.5 1z",
   shield: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z",
+  voucher: "M4 8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-4zM14 7v10",
   plus: "M12 5v14M5 12h14",
   x: "M18 6 6 18M6 6l12 12",
   edit: "M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z",
@@ -49,7 +51,8 @@ function escapeHtml(s: unknown): string {
 const NAV: NavEintrag[] = [
   { typ: "ziel", key: "dashboard", label: "dash", icon: "dash" },
   { typ: "ziel", key: "buchungen", label: "buch", icon: "book" },
-  { typ: "ziel", key: "kasse", label: "kasse", icon: "cash", phase: "P1" },
+  { typ: "ziel", key: "kasse", label: "kasse", icon: "cash" },
+  { typ: "ziel", key: "gutscheine", label: "nav_gutscheine", icon: "voucher" },
   { typ: "trenner", label: "ausw" },
   { typ: "ziel", key: "bwa", label: "bwa", icon: "chart", phase: "P2" },
   { typ: "ziel", key: "euer", label: "euer", icon: "doc", phase: "P2" },
@@ -73,9 +76,11 @@ interface Zustand {
   konten: Konto[];
   kostenstellen: Kostenstelle[];
   buchungen: Buchung[];
+  gutscheine: Gutschein[];
   kassenAnfangsbestand: number;
   kleinunternehmer: boolean;
   gutscheinSumme: number;
+  kassenKonto: "1000" | "1210";
 }
 
 let zustand: Zustand;
@@ -91,6 +96,7 @@ async function datenNeuLaden(): Promise<void> {
   zustand.konten = konten;
   zustand.kostenstellen = kostenstellen;
   zustand.buchungen = buchungen;
+  zustand.gutscheine = gutscheine;
   zustand.kassenAnfangsbestand = einstellungen.kassenAnfangsbestand;
   zustand.kleinunternehmer = einstellungen.kleinunternehmer;
   zustand.gutscheinSumme = offeneGutscheinSumme(gutscheine);
@@ -369,6 +375,187 @@ async function kostenstelleLoeschen(id: string): Promise<void> {
   zeigeMeldung(t(zustand.sprache, "geloescht"));
 }
 
+// ---------- Kassenbuch ----------
+
+const KASSENKONTEN: { nr: "1000" | "1210"; label: string }[] = [
+  { nr: "1000", label: "Kasse" },
+  { nr: "1210", label: "Karte" },
+];
+
+function renderKasse(): string {
+  const anfangsbestand = zustand.kassenKonto === "1000" ? zustand.kassenAnfangsbestand : 0;
+  const verlauf = kassenverlauf(zustand.buchungen, anfangsbestand, zustand.kassenKonto, kontoVon).reverse();
+  const aktuellerBestand = verlauf[0]?.bestand ?? anfangsbestand;
+
+  const auswahl = `<div class="seg">${KASSENKONTEN.map(
+    (k) => `<button data-aktion="kasse-konto-waehlen" data-nr="${k.nr}" class="${zustand.kassenKonto === k.nr ? "on" : ""}">${k.label}</button>`,
+  ).join("")}</div>`;
+
+  return (
+    topbarTitel(t(zustand.sprache, "kasse"), auswahl) +
+    `<div class="kpiwrap" style="margin-bottom:14px"><div class="grid g3" style="gap:0">
+      <div class="kpi">
+        <div class="lbl">${t(zustand.sprache, "bestand")}</div>
+        <div class="val ${aktuellerBestand < 0 ? "neg" : ""}">${formatEur(aktuellerBestand)} €</div>
+        ${aktuellerBestand < 0 ? `<div class="dlt"><span class="pill r">${t(zustand.sprache, "kasse_negativ")}</span></div>` : ""}
+      </div>
+    </div></div>
+    <div class="card">${
+      verlauf.length
+        ? `<div class="tw"><table><thead><tr>
+            <th style="width:92px">${t(zustand.sprache, "date")}</th><th>${t(zustand.sprache, "text")}</th>
+            <th class="num" style="width:110px">${t(zustand.sprache, "bewegung")}</th>
+            <th class="num" style="width:110px">${t(zustand.sprache, "bestand")}</th>
+          </tr></thead><tbody>
+            ${verlauf
+              .map(
+                (z) => `<tr>
+                  <td>${z.buchung.datum.split("-").reverse().join(".")}</td>
+                  <td>${escapeHtml(z.buchung.text)}</td>
+                  <td class="num ${z.bewegung >= 0 ? "pos" : "neg"}">${z.bewegung >= 0 ? "+" : ""}${formatEur(z.bewegung)}</td>
+                  <td class="num ${z.negativ ? "neg" : ""}"><b>${formatEur(z.bestand)}</b></td>
+                </tr>`,
+              )
+              .join("")}
+          </tbody></table></div>`
+        : `<div class="empty">${t(zustand.sprache, "keine")}</div>`
+    }</div>`
+  );
+}
+
+// ---------- Gutscheine ----------
+
+const GUTSCHEIN_STATUS_LABEL: Record<Gutschein["status"], string> = {
+  offen: "status_offen",
+  teilweise_eingeloest: "status_teilweise",
+  eingeloest: "status_eingeloest",
+};
+const GUTSCHEIN_STATUS_PILL: Record<Gutschein["status"], string> = {
+  offen: "y",
+  teilweise_eingeloest: "b",
+  eingeloest: "g",
+};
+
+function renderGutscheine(): string {
+  const sortiert = [...zustand.gutscheine].sort((a, b) => (b.ausgabe_datum ?? "").localeCompare(a.ausgabe_datum ?? ""));
+  return (
+    topbarTitel(
+      t(zustand.sprache, "nav_gutscheine"),
+      `<button class="btn" data-aktion="gutschein-ausgeben-neu">${icon("plus")}${t(zustand.sprache, "gutschein_ausgeben")}</button>`,
+    ) +
+    `<div class="card">${
+      sortiert.length
+        ? `<div class="tw"><table><thead><tr>
+            <th style="width:120px">${t(zustand.sprache, "nr")}</th>
+            <th style="width:92px">${t(zustand.sprache, "ausgabedatum")}</th>
+            <th class="num" style="width:90px">${t(zustand.sprache, "betrag")}</th>
+            <th class="num" style="width:90px">${t(zustand.sprache, "eingeloest_spalte")}</th>
+            <th class="num" style="width:90px">${t(zustand.sprache, "rest")}</th>
+            <th style="width:130px">${t(zustand.sprache, "status")}</th>
+            <th style="width:100px"></th>
+          </tr></thead><tbody>
+            ${sortiert
+              .map(
+                (g) => `<tr>
+                  <td><span class="tag">${escapeHtml(g.nummer)}</span></td>
+                  <td>${g.ausgabe_datum ? g.ausgabe_datum.split("-").reverse().join(".") : ""}</td>
+                  <td class="num">${formatEur(g.betrag)}</td>
+                  <td class="num">${formatEur(g.eingeloest_betrag)}</td>
+                  <td class="num"><b>${formatEur(offenerBetrag(g))}</b></td>
+                  <td><span class="pill ${GUTSCHEIN_STATUS_PILL[g.status]}">${t(zustand.sprache, GUTSCHEIN_STATUS_LABEL[g.status])}</span></td>
+                  <td style="text-align:end">
+                    ${g.status !== "eingeloest" ? `<button class="btn ghost sm" data-aktion="gutschein-einloesen-neu" data-id="${escapeHtml(g.id ?? "")}">${t(zustand.sprache, "gutschein_einloesen")}</button>` : ""}
+                  </td>
+                </tr>`,
+              )
+              .join("")}
+          </tbody></table></div>`
+        : `<div class="empty">${t(zustand.sprache, "keine")}</div>`
+    }</div>`
+  );
+}
+
+function gutscheinAusgebenFormular(): void {
+  const jahr = String(new Date().getFullYear());
+  const vorschlag = naechsteBelegnummer(
+    zustand.gutscheine.map((g) => g.nummer),
+    jahr,
+    "GS",
+  );
+  openModal(`
+    <div class="mhead"><h2 style="margin:0">${t(zustand.sprache, "gutschein_ausgeben")}</h2>
+      <button class="x" data-modal-close>${icon("x")}</button></div>
+    <div class="row">
+      <div><label class="f">${t(zustand.sprache, "nr")}</label><input id="f-nummer" value="${vorschlag}"></div>
+      <div><label class="f">${t(zustand.sprache, "ausgabedatum")}</label><input type="date" id="f-datum" value="${new Date().toISOString().slice(0, 10)}"></div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <div><label class="f">${t(zustand.sprache, "betrag")}</label><input id="f-betrag" placeholder="0,00"></div>
+      <div><label class="f">${t(zustand.sprache, "zahlungskonto")}</label>
+        <select id="f-zahlkonto">${kontoOptionen("1000", ["finanz"])}</select></div>
+    </div>
+    <div class="row" style="margin-top:20px;justify-content:flex-end">
+      <button class="btn ghost fit" data-modal-close>${t(zustand.sprache, "cancel")}</button>
+      <button class="btn fit" data-aktion="gutschein-ausgeben-speichern">${t(zustand.sprache, "save")}</button>
+    </div>
+  `);
+}
+
+async function gutscheinAusgebenSpeichern(): Promise<void> {
+  const nummer = document.querySelector<HTMLInputElement>("#f-nummer")?.value.trim() ?? "";
+  const ausgabe_datum = document.querySelector<HTMLInputElement>("#f-datum")?.value ?? "";
+  const betrag = parseNumber(document.querySelector<HTMLInputElement>("#f-betrag")?.value);
+  const zahlungskonto = document.querySelector<HTMLSelectElement>("#f-zahlkonto")?.value ?? "";
+  if (!nummer || !ausgabe_datum || !betrag) {
+    zeigeMeldung(t(zustand.sprache, "fehler_pflichtfelder"));
+    return;
+  }
+  await zustand.repo.gutscheinAusgeben({ nummer, ausgabe_datum, betrag, zahlungskonto });
+  await datenNeuLaden();
+  closeModal();
+  render();
+  zeigeMeldung(t(zustand.sprache, "gespeichert"));
+}
+
+function gutscheinEinloesenFormular(id: string): void {
+  const g = zustand.gutscheine.find((x) => x.id === id);
+  if (!g) return;
+  openModal(`
+    <div class="mhead"><h2 style="margin:0">${t(zustand.sprache, "gutschein_einloesen")} ${escapeHtml(g.nummer)}</h2>
+      <button class="x" data-modal-close>${icon("x")}</button></div>
+    <p class="hint">${t(zustand.sprache, "rest")}: <b class="num">${formatEur(offenerBetrag(g))} €</b></p>
+    <div class="row">
+      <div><label class="f">${t(zustand.sprache, "betrag")}</label><input id="f-betrag" value="${offenerBetrag(g)}"></div>
+      <div><label class="f">${t(zustand.sprache, "einloesedatum")}</label><input type="date" id="f-datum" value="${new Date().toISOString().slice(0, 10)}"></div>
+    </div>
+    <div class="row" style="margin-top:12px"><div><label class="f">${t(zustand.sprache, "erloeskonto")}</label>
+      <select id="f-erloeskonto">${kontoOptionen("", ["erloes"])}</select></div></div>
+    <div class="row" style="margin-top:20px;justify-content:flex-end">
+      <button class="btn ghost fit" data-modal-close>${t(zustand.sprache, "cancel")}</button>
+      <button class="btn fit" data-aktion="gutschein-einloesen-speichern" data-id="${escapeHtml(id)}">${t(zustand.sprache, "save")}</button>
+    </div>
+  `);
+}
+
+async function gutscheinEinloesenSpeichern(id: string): Promise<void> {
+  const betrag = parseNumber(document.querySelector<HTMLInputElement>("#f-betrag")?.value);
+  const datum = document.querySelector<HTMLInputElement>("#f-datum")?.value ?? "";
+  const erloesKonto = document.querySelector<HTMLSelectElement>("#f-erloeskonto")?.value ?? "";
+  if (!betrag || !datum || !erloesKonto) {
+    zeigeMeldung(t(zustand.sprache, "fehler_pflichtfelder"));
+    return;
+  }
+  const ergebnis = await zustand.repo.gutscheinEinloesen({ id, betrag, datum, erloesKonto });
+  if (!ergebnis.ok) {
+    zeigeMeldung(ergebnis.grund ?? t(zustand.sprache, "fehler_restbetrag"));
+    return;
+  }
+  await datenNeuLaden();
+  closeModal();
+  render();
+  zeigeMeldung(t(zustand.sprache, "gespeichert"));
+}
+
 // ---------- Buchungen ----------
 
 function buchungsTabelle(liste: Buchung[]): string {
@@ -425,7 +612,10 @@ function buchungFormular(id?: string): void {
   const b = bestehend ?? {
     id: "",
     datum: new Date().toISOString().slice(0, 10),
-    belegnr: "",
+    belegnr: naechsteBelegnummer(
+      zustand.buchungen.map((x) => x.belegnr ?? ""),
+      String(new Date().getFullYear()),
+    ),
     text: "",
     konto: vorgabeKonto?.nr ?? "",
     gegenkonto: zustand.konten.find((k) => k.typ === "finanz")?.nr ?? "",
@@ -535,6 +725,10 @@ function renderInhalt(): string {
       return renderKonten();
     case "kostenstellen":
       return renderKostenstellen();
+    case "kasse":
+      return renderKasse();
+    case "gutscheine":
+      return renderGutscheine();
     default:
       return renderPlatzhalter();
   }
@@ -643,6 +837,24 @@ function einrichten(): void {
       case "buchung-loeschen":
         if (id) void buchungLoeschen(id);
         break;
+      case "kasse-konto-waehlen":
+        if (nr === "1000" || nr === "1210") {
+          zustand.kassenKonto = nr;
+          render();
+        }
+        break;
+      case "gutschein-ausgeben-neu":
+        gutscheinAusgebenFormular();
+        break;
+      case "gutschein-ausgeben-speichern":
+        void gutscheinAusgebenSpeichern();
+        break;
+      case "gutschein-einloesen-neu":
+        if (id) gutscheinEinloesenFormular(id);
+        break;
+      case "gutschein-einloesen-speichern":
+        if (id) void gutscheinEinloesenSpeichern(id);
+        break;
     }
   });
 
@@ -667,9 +879,11 @@ async function start(): Promise<void> {
     konten: [],
     kostenstellen: [],
     buchungen: [],
+    gutscheine: [],
     kassenAnfangsbestand: 0,
     kleinunternehmer: false,
     gutscheinSumme: 0,
+    kassenKonto: "1000",
   };
   await datenNeuLaden();
   einrichten();

@@ -4,13 +4,16 @@
 
 import type { Buchung, Konto, Kostenstelle } from "../lib/types.ts";
 import type { Gutschein } from "../lib/gutschein.ts";
+import { offenerBetrag, statusNachEinloesung } from "../lib/gutschein.ts";
+import { round2 } from "../lib/numbers.ts";
 import { skr03Startkonten } from "../lib/skr03.ts";
+import { uid } from "../lib/uid.ts";
 import type { Datenquelle, LoeschErgebnis } from "./typen.ts";
 
 function anfangsGutscheine(): Gutschein[] {
   return [
-    { nummer: "G-2026-014", betrag: 25, eingeloest_betrag: 0, status: "offen" },
-    { nummer: "G-2026-018", betrag: 50, eingeloest_betrag: 20, status: "teilweise_eingeloest" },
+    { id: "gs1", nummer: "G-2026-014", ausgabe_datum: "2026-08-01", betrag: 25, eingeloest_betrag: 0, status: "offen" },
+    { id: "gs2", nummer: "G-2026-018", ausgabe_datum: "2026-08-05", betrag: 50, eingeloest_betrag: 20, eingeloest_datum: "2026-08-10", status: "teilweise_eingeloest" },
   ];
 }
 
@@ -41,6 +44,51 @@ export function erstelleVorschauDatenquelle(): Datenquelle {
     },
     async gutscheine() {
       return gutscheine.slice();
+    },
+    async gutscheinAusgeben(eingabe) {
+      gutscheine.push({
+        id: uid(),
+        nummer: eingabe.nummer,
+        ausgabe_datum: eingabe.ausgabe_datum,
+        betrag: eingabe.betrag,
+        eingeloest_betrag: 0,
+        status: "offen",
+      });
+      buchungen.push({
+        id: uid(),
+        datum: eingabe.ausgabe_datum,
+        text: `Gutschein ausgegeben ${eingabe.nummer}`,
+        konto: "1700",
+        gegenkonto: eingabe.zahlungskonto,
+        betrag_brutto: eingabe.betrag,
+        ust_satz: 0,
+        quelle: "manuell",
+        storniert: false,
+      });
+    },
+    async gutscheinEinloesen(eingabe): Promise<LoeschErgebnis> {
+      const g = gutscheine.find((x) => x.id === eingabe.id);
+      if (!g) return { ok: false, grund: "Gutschein nicht gefunden." };
+      if (round2(eingabe.betrag) > offenerBetrag(g)) {
+        return { ok: false, grund: "Betrag übersteigt den Restbetrag des Gutscheins." };
+      }
+      const erloesKonto = konten.find((k) => k.nr === eingabe.erloesKonto);
+      const neuerStatus = statusNachEinloesung(g, eingabe.betrag);
+      g.eingeloest_betrag = round2(g.eingeloest_betrag + eingabe.betrag);
+      g.eingeloest_datum = eingabe.datum;
+      g.status = neuerStatus;
+      buchungen.push({
+        id: uid(),
+        datum: eingabe.datum,
+        text: `Gutschein eingelöst ${g.nummer}`,
+        konto: eingabe.erloesKonto,
+        gegenkonto: "1700",
+        betrag_brutto: eingabe.betrag,
+        ust_satz: erloesKonto?.ust_satz ?? 0,
+        quelle: "manuell",
+        storniert: false,
+      });
+      return { ok: true };
     },
 
     async konten() {
