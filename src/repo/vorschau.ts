@@ -170,7 +170,7 @@ export function erstelleVorschauDatenquelle(): Datenquelle {
     },
 
     async importregeln() {
-      return importregeln.slice();
+      return importregeln.slice().sort((a, b) => b.prioritaet - a.prioritaet);
     },
     async importregelSpeichern(regel) {
       const i = importregeln.findIndex((r) => r.id === regel.id);

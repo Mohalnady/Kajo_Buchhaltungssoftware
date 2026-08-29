@@ -274,7 +274,7 @@ export function erstelleTauriDatenquelle(db: Database, mandantId: string): Daten
 
     async importregeln() {
       const zeilen = await db.select<{ id: string; stichwoerter: string; konto: string; prioritaet: number; aktiv: number }[]>(
-        "SELECT id, stichwoerter, konto, prioritaet, aktiv FROM importregel WHERE aktiv = 1 ORDER BY prioritaet DESC",
+        "SELECT id, stichwoerter, konto, prioritaet, aktiv FROM importregel ORDER BY prioritaet DESC",
       );
       return zeilen.map((z) => ({ ...z, aktiv: z.aktiv === 1 }));
     },

@@ -6,9 +6,14 @@ import { offenerBetrag, offeneGutscheinSumme, type Gutschein } from "./lib/gutsc
 import { naechsteBelegnummer } from "./lib/belegnummer.ts";
 import { formatEur, parseNumber } from "./lib/numbers.ts";
 import { uid } from "./lib/uid.ts";
-import type { Beleg, Buchung, Konto, Kostenstelle } from "./lib/types.ts";
+import type { Beleg, Buchung, Importlauf, Importregel, Konto, Kostenstelle } from "./lib/types.ts";
 import { erstelleDatenquelle } from "./repo/index.ts";
 import type { Datenquelle } from "./repo/typen.ts";
+import { formatVonDateiname, inhaltEinlesen } from "./lib/dateiimport.ts";
+import { spaltenErkennen, type DublettenKandidat, type ImportFeld } from "./lib/import-parser.ts";
+import { zeileZuKandidat, type ImportKandidat } from "./lib/importkandidaten.ts";
+import { standardImportRegeln } from "./lib/standardimportregeln.ts";
+import { buchungenZuCsv } from "./lib/buchungscsv.ts";
 
 // P1-Grundgerüst: Navigation und Design aus dem Prototyp (referenz/prototyp.html),
 // aber als echte TypeScript-Struktur statt einer HTML-Datei. Buchungen,
@@ -90,7 +95,7 @@ const NAV: NavEintrag[] = [
   { typ: "trenner", label: "verw" },
   { typ: "ziel", key: "konten", label: "konten", icon: "list" },
   { typ: "ziel", key: "kostenstellen", label: "ks", icon: "tagg" },
-  { typ: "ziel", key: "datenimport", label: "imp", icon: "imp", phase: "P3" },
+  { typ: "ziel", key: "datenimport", label: "imp", icon: "imp" },
   { typ: "ziel", key: "mandanten", label: "mand", icon: "build", phase: "P5" },
   { typ: "ziel", key: "einstellungen", label: "einst", icon: "gear" },
   { typ: "ziel", key: "sicherung", label: "sich", icon: "shield", phase: "P5" },
@@ -108,17 +113,21 @@ interface Zustand {
   kleinunternehmer: boolean;
   gutscheinSumme: number;
   kassenKonto: "1000" | "1210";
+  importregeln: Importregel[];
+  importlaeufe: Importlauf[];
 }
 
 let zustand: Zustand;
 
 async function datenNeuLaden(): Promise<void> {
-  const [konten, kostenstellen, buchungen, einstellungen, gutscheine] = await Promise.all([
+  const [konten, kostenstellen, buchungen, einstellungen, gutscheine, importregeln, importlaeufe] = await Promise.all([
     zustand.repo.konten(),
     zustand.repo.kostenstellen(),
     zustand.repo.buchungen(),
     zustand.repo.mandantEinstellungen(),
     zustand.repo.gutscheine(),
+    zustand.repo.importregeln(),
+    zustand.repo.importlaeufe(),
   ]);
   zustand.konten = konten;
   zustand.kostenstellen = kostenstellen;
@@ -127,6 +136,8 @@ async function datenNeuLaden(): Promise<void> {
   zustand.kassenAnfangsbestand = einstellungen.kassenAnfangsbestand;
   zustand.kleinunternehmer = einstellungen.kleinunternehmer;
   zustand.gutscheinSumme = offeneGutscheinSumme(gutscheine);
+  zustand.importregeln = importregeln;
+  zustand.importlaeufe = importlaeufe;
 }
 
 function kontoVon(nr: string): Konto | undefined {
@@ -802,6 +813,338 @@ async function belegLoeschenAktion(id: string): Promise<void> {
   zeigeMeldung(t(zustand.sprache, "geloescht"));
 }
 
+// ---------- Datenimport und -export ----------
+
+interface ImportSitzung {
+  dateiname: string;
+  format: Importlauf["format"];
+  kopfzeile: string[];
+  zeilen: (string | number)[][];
+  zuordnung: Partial<Record<ImportFeld, number>>;
+  kandidaten: ImportKandidat[];
+}
+
+let importSitzung: ImportSitzung | null = null;
+
+const IMPORT_FELDER: { feld: ImportFeld; label: string }[] = [
+  { feld: "datum", label: "date" },
+  { feld: "betrag", label: "betrag" },
+  { feld: "text", label: "text" },
+  { feld: "text2", label: "text_zusatz" },
+  { feld: "belegnr", label: "beleg" },
+  { feld: "ust", label: "satz" },
+  { feld: "zahlart", label: "zahlart" },
+  { feld: "kostenstelle", label: "kst" },
+  { feld: "konto", label: "konto" },
+  { feld: "gegenkonto", label: "gegen" },
+];
+
+const IMPORT_KONTO_TYPEN: Konto["typ"][] = ["erloes", "aufwand", "finanz", "privat", "bestand"];
+
+function ladeDateiHerunter(inhalt: BlobPart, dateiname: string, mime: string): void {
+  const blob = new Blob([inhalt], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = dateiname;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+function buchungenExportieren(): void {
+  const sortiert = [...zustand.buchungen].sort((a, b) => a.datum.localeCompare(b.datum));
+  const csv = buchungenZuCsv(sortiert);
+  ladeDateiHerunter(csv, `buchungen_${new Date().toISOString().slice(0, 10)}.csv`, "text/csv;charset=utf-8");
+}
+
+function kandidatenNeuBerechnen(): void {
+  if (!importSitzung) return;
+  const bestehende: DublettenKandidat[] = zustand.buchungen.map((b) => ({
+    datum: b.datum,
+    betrag: b.betrag_brutto,
+    text: b.text,
+  }));
+  const aktiveRegeln = zustand.importregeln.filter((r) => r.aktiv);
+  importSitzung.kandidaten = importSitzung.zeilen.map((zeile) =>
+    zeileZuKandidat(zeile, importSitzung!.zuordnung, aktiveRegeln, bestehende),
+  );
+}
+
+async function importDateiEinlesen(datei: File): Promise<void> {
+  const format = formatVonDateiname(datei.name);
+  const buffer = await datei.arrayBuffer();
+  const roh = inhaltEinlesen(format, buffer);
+  if (!roh.zeilen.length) {
+    zeigeMeldung(t(zustand.sprache, "import_keine_zeilen"));
+    return;
+  }
+  importSitzung = {
+    dateiname: datei.name,
+    format: roh.format,
+    kopfzeile: roh.kopfzeile,
+    zeilen: roh.zeilen,
+    zuordnung: spaltenErkennen(roh.kopfzeile),
+    kandidaten: [],
+  };
+  kandidatenNeuBerechnen();
+  render();
+}
+
+function importAbbrechen(): void {
+  importSitzung = null;
+  render();
+}
+
+async function importUebernehmen(): Promise<void> {
+  if (!importSitzung) return;
+  const ausgewaehlt = importSitzung.kandidaten.filter((k) => k.uebernehmen);
+  if (!ausgewaehlt.length) {
+    zeigeMeldung(t(zustand.sprache, "fehler_pflichtfelder"));
+    return;
+  }
+  const quelle: Buchung["quelle"] =
+    importSitzung.format === "excel"
+      ? "import_excel"
+      : importSitzung.zuordnung.zahlart != null
+        ? "import_kasse"
+        : "import_bank";
+  const buchungen: Buchung[] = ausgewaehlt.map((k) => ({
+    id: uid(),
+    datum: k.datum,
+    belegnr: k.belegnr,
+    text: k.text,
+    konto: k.konto,
+    gegenkonto: k.gegenkonto,
+    betrag_brutto: k.betrag_brutto,
+    ust_satz: k.ust_satz,
+    quelle,
+    storniert: false,
+  }));
+  await zustand.repo.buchungenUebernehmen({
+    buchungen,
+    datei: importSitzung.dateiname,
+    format: importSitzung.format,
+    zeilen: importSitzung.zeilen.length,
+  });
+  importSitzung = null;
+  await datenNeuLaden();
+  render();
+  zeigeMeldung(t(zustand.sprache, "gespeichert"));
+}
+
+async function importRueckgaengigAktion(id: string): Promise<void> {
+  if (!confirm(t(zustand.sprache, "loeschen_bestaetigen"))) return;
+  await zustand.repo.importRueckgaengig(id);
+  await datenNeuLaden();
+  render();
+  zeigeMeldung(t(zustand.sprache, "geloescht"));
+}
+
+function importZuordnungAuswahl(feld: ImportFeld): string {
+  const aktuell = importSitzung?.zuordnung[feld];
+  const optionen = importSitzung
+    ? importSitzung.kopfzeile
+        .map((h, i) => `<option value="${i}" ${aktuell === i ? "selected" : ""}>${escapeHtml(h)}</option>`)
+        .join("")
+    : "";
+  return `<select data-import-zuordnung="${feld}"><option value="">${t(zustand.sprache, "import_spalte_keine")}</option>${optionen}</select>`;
+}
+
+function importPruefTabelle(): string {
+  if (!importSitzung) return "";
+  if (!importSitzung.kandidaten.length) return `<div class="empty">${t(zustand.sprache, "import_keine_zeilen")}</div>`;
+  return `<div class="tw"><table><thead><tr>
+      <th></th><th>${t(zustand.sprache, "date")}</th><th>${t(zustand.sprache, "text")}</th>
+      <th>${t(zustand.sprache, "betrag")}</th><th>${t(zustand.sprache, "konto")}</th>
+      <th>${t(zustand.sprache, "gegen")}</th><th>${t(zustand.sprache, "satz")}</th><th></th>
+    </tr></thead><tbody>
+      ${importSitzung.kandidaten
+        .map(
+          (k, i) => `<tr>
+            <td><input type="checkbox" data-import-feld="uebernehmen" data-index="${i}" ${k.uebernehmen ? "checked" : ""}></td>
+            <td>${escapeHtml(k.datum.split("-").reverse().join("."))}</td>
+            <td>${escapeHtml(k.text)}</td>
+            <td style="text-align:end;white-space:nowrap">${formatEur(k.betrag_brutto)} €</td>
+            <td><select data-import-feld="konto" data-index="${i}">${kontoOptionen(k.konto, IMPORT_KONTO_TYPEN)}</select></td>
+            <td><select data-import-feld="gegenkonto" data-index="${i}">${kontoOptionen(k.gegenkonto, IMPORT_KONTO_TYPEN)}</select></td>
+            <td><select data-import-feld="ust_satz" data-index="${i}">${[0, 7, 19]
+              .map((s) => `<option value="${s}" ${k.ust_satz === s ? "selected" : ""}>${s} %</option>`)
+              .join("")}</select></td>
+            <td>${k.dublette ? `<span class="pill y">${t(zustand.sprache, "import_dublette")}</span>` : ""}</td>
+          </tr>`,
+        )
+        .join("")}
+    </tbody></table></div>`;
+}
+
+function renderImportBereich(): string {
+  if (!importSitzung) {
+    return `<input type="file" accept=".csv,.tsv,.json,.md,.markdown,.xlsx,.xls" data-aktion="import-datei-gewaehlt">
+      <div class="hint" style="margin-top:6px">${t(zustand.sprache, "import_hinweis_typen")}</div>`;
+  }
+  return `
+    <div class="hint">${escapeHtml(importSitzung.dateiname)} · ${importSitzung.format.toUpperCase()} · ${importSitzung.zeilen.length} ${t(zustand.sprache, "import_zeilen_spalte")}</div>
+    <h3 style="margin:16px 0 8px">${t(zustand.sprache, "import_spalten")}</h3>
+    <div class="row" style="flex-wrap:wrap;gap:12px">
+      ${IMPORT_FELDER.map((f) => `<div><label class="f">${t(zustand.sprache, f.label)}</label>${importZuordnungAuswahl(f.feld)}</div>`).join("")}
+    </div>
+    <h3 style="margin:20px 0 8px">${t(zustand.sprache, "import_pruefen")}</h3>
+    ${importPruefTabelle()}
+    <div class="row" style="margin-top:16px;justify-content:flex-end;gap:8px">
+      <button class="btn ghost fit" data-aktion="import-abbrechen">${t(zustand.sprache, "cancel")}</button>
+      <button class="btn fit" data-aktion="import-uebernehmen">${t(zustand.sprache, "import_uebernehmen")}</button>
+    </div>
+  `;
+}
+
+function importBereichAktualisieren(): void {
+  const bereich = document.querySelector<HTMLDivElement>("#import-bereich");
+  if (bereich) bereich.innerHTML = renderImportBereich();
+}
+
+function renderImportregeln(): string {
+  if (!zustand.importregeln.length) return `<div class="empty">${t(zustand.sprache, "keine")}</div>`;
+  return `<div class="tw"><table><thead><tr>
+      <th>${t(zustand.sprache, "stichwoerter")}</th><th>${t(zustand.sprache, "konto")}</th>
+      <th>${t(zustand.sprache, "prioritaet")}</th><th>${t(zustand.sprache, "aktiv")}</th><th></th>
+    </tr></thead><tbody>
+      ${zustand.importregeln
+        .map(
+          (r) => `<tr>
+            <td>${escapeHtml(r.stichwoerter)}</td><td>${escapeHtml(r.konto)}</td>
+            <td>${r.prioritaet}</td><td>${r.aktiv ? "✓" : "—"}</td>
+            <td style="text-align:end;white-space:nowrap">
+              <button class="btn ghost sm" data-aktion="regel-bearbeiten" data-id="${escapeHtml(r.id)}">${icon("edit")}</button>
+              <button class="btn danger sm" data-aktion="regel-loeschen" data-id="${escapeHtml(r.id)}">${icon("trash")}</button>
+            </td>
+          </tr>`,
+        )
+        .join("")}
+    </tbody></table></div>`;
+}
+
+function renderImportlaeufe(): string {
+  const sortiert = [...zustand.importlaeufe].sort((a, b) => b.datum.localeCompare(a.datum));
+  if (!sortiert.length) return `<div class="empty">${t(zustand.sprache, "import_keine_laeufe")}</div>`;
+  return `<div class="tw"><table><thead><tr>
+      <th>${t(zustand.sprache, "date")}</th><th>${t(zustand.sprache, "datei_spalte")}</th>
+      <th>${t(zustand.sprache, "format_spalte")}</th><th>${t(zustand.sprache, "import_zeilen_spalte")}</th>
+      <th>${t(zustand.sprache, "import_uebernommen_spalte")}</th><th></th>
+    </tr></thead><tbody>
+      ${sortiert
+        .map(
+          (l, i) => `<tr>
+            <td>${escapeHtml(l.datum.slice(0, 10).split("-").reverse().join("."))}</td>
+            <td>${escapeHtml(l.datei)}</td><td>${l.format.toUpperCase()}</td>
+            <td>${l.zeilen}</td><td>${l.uebernommen}</td>
+            <td style="text-align:end">${
+              i === 0
+                ? `<button class="btn ghost sm" data-aktion="import-rueckgaengig" data-id="${escapeHtml(l.id)}">${t(zustand.sprache, "rueckgaengig")}</button>`
+                : ""
+            }</td>
+          </tr>`,
+        )
+        .join("")}
+    </tbody></table></div>`;
+}
+
+function renderDatenimport(): string {
+  return (
+    topbarTitel(
+      t(zustand.sprache, "imp"),
+      `<button class="btn ghost" data-aktion="buchungen-exportieren">${icon("doc")}${t(zustand.sprache, "export_csv")}</button>`,
+    ) +
+    `<div class="card"><h2 style="margin-top:0">${t(zustand.sprache, "import_datei")}</h2>
+      <div id="import-bereich">${renderImportBereich()}</div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <h2 style="margin:0">${t(zustand.sprache, "import_regeln_titel")}</h2>
+        <div class="row fit" style="gap:8px">
+          <button class="btn ghost sm" data-aktion="standardregeln-laden">${t(zustand.sprache, "standardregeln_laden")}</button>
+          <button class="btn sm" data-aktion="regel-neu">${icon("plus")}${t(zustand.sprache, "import_regel_neu")}</button>
+        </div>
+      </div>
+      <div style="margin-top:12px">${renderImportregeln()}</div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <h2 style="margin-top:0">${t(zustand.sprache, "import_protokoll_titel")}</h2>
+      ${renderImportlaeufe()}
+    </div>`
+  );
+}
+
+function regelFormular(id?: string): void {
+  const bestehend = id ? zustand.importregeln.find((r) => r.id === id) : undefined;
+  const r = bestehend ?? { id: "", stichwoerter: "", konto: "", prioritaet: 0, aktiv: true };
+  openModal(`
+    <div class="mhead"><h2 style="margin:0">${id ? t(zustand.sprache, "edit") : t(zustand.sprache, "import_regel_neu")}</h2>
+      <button class="x" data-modal-close>${icon("x")}</button></div>
+    <div class="row"><div style="flex:2"><label class="f">${t(zustand.sprache, "stichwoerter")}</label>
+      <input id="f-stichwoerter" value="${escapeHtml(r.stichwoerter)}" placeholder="sumup,kartenzahlung"></div></div>
+    <div class="row" style="margin-top:12px">
+      <div><label class="f">${t(zustand.sprache, "konto")}</label>
+        <select id="f-regel-konto">${kontoOptionen(r.konto, IMPORT_KONTO_TYPEN)}</select></div>
+      <div><label class="f">${t(zustand.sprache, "prioritaet")}</label>
+        <input id="f-prioritaet" type="number" value="${r.prioritaet}"></div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <label class="f" style="display:flex;align-items:center;gap:8px;cursor:pointer">
+        <input type="checkbox" id="f-aktiv" ${r.aktiv ? "checked" : ""}> ${t(zustand.sprache, "aktiv")}
+      </label>
+    </div>
+    <div class="row" style="margin-top:20px;justify-content:flex-end">
+      <button class="btn ghost fit" data-modal-close>${t(zustand.sprache, "cancel")}</button>
+      <button class="btn fit" data-aktion="regel-speichern" data-id="${id ?? ""}">${t(zustand.sprache, "save")}</button>
+    </div>
+  `);
+}
+
+async function regelSpeichern(id: string): Promise<void> {
+  const stichwoerter = document.querySelector<HTMLInputElement>("#f-stichwoerter")?.value.trim() ?? "";
+  const konto = document.querySelector<HTMLSelectElement>("#f-regel-konto")?.value ?? "";
+  if (!stichwoerter || !konto) {
+    zeigeMeldung(t(zustand.sprache, "fehler_pflichtfelder"));
+    return;
+  }
+  await zustand.repo.importregelSpeichern({
+    id: id || uid(),
+    stichwoerter,
+    konto,
+    prioritaet: Number(document.querySelector<HTMLInputElement>("#f-prioritaet")?.value ?? 0),
+    aktiv: document.querySelector<HTMLInputElement>("#f-aktiv")?.checked ?? true,
+  });
+  await datenNeuLaden();
+  closeModal();
+  render();
+  zeigeMeldung(t(zustand.sprache, "gespeichert"));
+}
+
+async function regelLoeschen(id: string): Promise<void> {
+  if (!confirm(t(zustand.sprache, "loeschen_bestaetigen"))) return;
+  await zustand.repo.importregelLoeschen(id);
+  await datenNeuLaden();
+  render();
+  zeigeMeldung(t(zustand.sprache, "geloescht"));
+}
+
+async function standardregelnLaden(): Promise<void> {
+  const vorhandene = new Set(zustand.importregeln.map((r) => r.stichwoerter));
+  for (const regel of standardImportRegeln()) {
+    if (vorhandene.has(regel.stichwoerter)) continue;
+    await zustand.repo.importregelSpeichern({
+      id: uid(),
+      stichwoerter: regel.stichwoerter,
+      konto: regel.konto,
+      prioritaet: 0,
+      aktiv: true,
+    });
+  }
+  await datenNeuLaden();
+  render();
+  zeigeMeldung(t(zustand.sprache, "gespeichert"));
+}
+
 // ---------- Platzhalter für kommende Phasen ----------
 
 function renderPlatzhalter(): string {
@@ -829,6 +1172,8 @@ function renderInhalt(): string {
       return renderKasse();
     case "gutscheine":
       return renderGutscheine();
+    case "datenimport":
+      return renderDatenimport();
     default:
       return renderPlatzhalter();
   }
@@ -964,6 +1309,33 @@ function einrichten(): void {
       case "beleg-loeschen":
         if (id) void belegLoeschenAktion(id);
         break;
+      case "buchungen-exportieren":
+        buchungenExportieren();
+        break;
+      case "import-abbrechen":
+        importAbbrechen();
+        break;
+      case "import-uebernehmen":
+        void importUebernehmen();
+        break;
+      case "import-rueckgaengig":
+        if (id) void importRueckgaengigAktion(id);
+        break;
+      case "regel-neu":
+        regelFormular();
+        break;
+      case "regel-bearbeiten":
+        if (id) regelFormular(id);
+        break;
+      case "regel-speichern":
+        void regelSpeichern(id ?? "");
+        break;
+      case "regel-loeschen":
+        if (id) void regelLoeschen(id);
+        break;
+      case "standardregeln-laden":
+        void standardregelnLaden();
+        break;
     }
   });
 
@@ -977,6 +1349,34 @@ function einrichten(): void {
       const buchungId = belegDatei.dataset.buchungId ?? "";
       void belegeHochladen(buchungId, belegDatei.files);
       belegDatei.value = "";
+    }
+
+    const importDatei = ziel.closest<HTMLInputElement>("[data-aktion='import-datei-gewaehlt']");
+    if (importDatei && importDatei.files?.length) {
+      void importDateiEinlesen(importDatei.files[0]);
+      importDatei.value = "";
+    }
+
+    const zuordnungSelect = ziel.closest<HTMLSelectElement>("[data-import-zuordnung]");
+    if (zuordnungSelect && importSitzung) {
+      const feld = zuordnungSelect.dataset.importZuordnung as ImportFeld;
+      if (zuordnungSelect.value === "") delete importSitzung.zuordnung[feld];
+      else importSitzung.zuordnung[feld] = Number(zuordnungSelect.value);
+      kandidatenNeuBerechnen();
+      importBereichAktualisieren();
+    }
+
+    const zeilenFeld = ziel.closest<HTMLInputElement | HTMLSelectElement>("[data-import-feld]");
+    if (zeilenFeld && importSitzung) {
+      const index = Number(zeilenFeld.dataset.index);
+      const kandidat = importSitzung.kandidaten[index];
+      const feld = zeilenFeld.dataset.importFeld;
+      if (kandidat && feld) {
+        if (feld === "uebernehmen") kandidat.uebernehmen = (zeilenFeld as HTMLInputElement).checked;
+        else if (feld === "ust_satz") kandidat.ust_satz = Number(zeilenFeld.value);
+        else if (feld === "konto") kandidat.konto = zeilenFeld.value;
+        else if (feld === "gegenkonto") kandidat.gegenkonto = zeilenFeld.value;
+      }
     }
   });
 
@@ -999,6 +1399,8 @@ async function start(): Promise<void> {
     kleinunternehmer: false,
     gutscheinSumme: 0,
     kassenKonto: "1000",
+    importregeln: [],
+    importlaeufe: [],
   };
   await datenNeuLaden();
   einrichten();

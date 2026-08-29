@@ -40,7 +40,9 @@ export type ImportFeld =
   | "belegnr"
   | "ust"
   | "zahlart"
-  | "kostenstelle";
+  | "kostenstelle"
+  | "konto"
+  | "gegenkonto";
 
 const SPALTEN_MUSTER: Record<ImportFeld, RegExp> = {
   datum: /datum|buchungstag|date|tag$|wertstell/i,
@@ -51,6 +53,11 @@ const SPALTEN_MUSTER: Record<ImportFeld, RegExp> = {
   ust: /mwst|ust|steuer|tax|vat/i,
   zahlart: /zahlart|zahlung|payment/i,
   kostenstelle: /kostenstelle|filiale|standort|cost.?cent/i,
+  // Nur beim Reimport der eigenen Kontor-CSV-Exporte relevant (exakte
+  // Kopfzeilennamen "Konto"/"Gegenkonto") — beim Bank-/Kassenimport bleiben
+  // diese Spalten unzugeordnet und Konto/Gegenkonto werden über Regeln/Zahlart ermittelt.
+  konto: /^konto$/i,
+  gegenkonto: /^gegenkonto$/i,
 };
 
 /** Automatischer Vorschlag der Spaltenzuordnung anhand der Kopfzeile (Regex auf Überschriften). */
