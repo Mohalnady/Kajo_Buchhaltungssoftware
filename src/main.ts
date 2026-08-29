@@ -6,7 +6,22 @@ import { offenerBetrag, offeneGutscheinSumme, type Gutschein } from "./lib/gutsc
 import { naechsteBelegnummer } from "./lib/belegnummer.ts";
 import { formatEur, parseNumber, round2 } from "./lib/numbers.ts";
 import { uid } from "./lib/uid.ts";
-import type { Beleg, Buchung, Dokument, DokumentTyp, Importlauf, Importregel, Konto, Kostenstelle } from "./lib/types.ts";
+import type {
+  Beleg,
+  Buchung,
+  Beschaeftigungsart,
+  Dokument,
+  DokumentTyp,
+  Importlauf,
+  Importregel,
+  Konto,
+  Kostenstelle,
+  Mitarbeiter,
+  Zeiteintrag,
+  ZeiteintragArt,
+  ZeiteintragStatus,
+  Zuschlagsregel,
+} from "./lib/types.ts";
 import { erstelleDatenquelle } from "./repo/index.ts";
 import type { Datenquelle } from "./repo/typen.ts";
 import { formatVonDateiname, inhaltEinlesen } from "./lib/dateiimport.ts";
@@ -20,6 +35,8 @@ import { ustVoranmeldung } from "./lib/ustva.ts";
 import { kontenblatt, summenUndSalden } from "./lib/berichte.ts";
 import { monatsReihe } from "./lib/diagramme.ts";
 import { buchungenDesMonats, paketEintraege } from "./lib/monatspaket.ts";
+import { feiertageNrw, istFeiertag } from "./lib/feiertage.ts";
+import { berechneStunden, bruttolohnFuerEintrag, standardZuschlagsregeln, warnungZehnStunden } from "./lib/stunden.ts";
 import { zipSync, type Zippable } from "fflate";
 
 // P1-Grundgerüst: Navigation und Design aus dem Prototyp (referenz/prototyp.html),
@@ -101,8 +118,8 @@ const NAV: NavEintrag[] = [
   { typ: "ziel", key: "berichte", label: "berichte", icon: "list" },
   { typ: "ziel", key: "diagramme", label: "diagramme", icon: "chart" },
   { typ: "trenner", label: "pers" },
-  { typ: "ziel", key: "mitarbeiter", label: "ma", icon: "users", phase: "P4" },
-  { typ: "ziel", key: "stunden", label: "std", icon: "clock", phase: "P4" },
+  { typ: "ziel", key: "mitarbeiter", label: "ma", icon: "users" },
+  { typ: "ziel", key: "stunden", label: "std", icon: "clock" },
   { typ: "trenner", label: "verw" },
   { typ: "ziel", key: "konten", label: "konten", icon: "list" },
   { typ: "ziel", key: "kostenstellen", label: "ks", icon: "tagg" },
@@ -130,21 +147,28 @@ interface Zustand {
   importregeln: Importregel[];
   importlaeufe: Importlauf[];
   dokumente: Dokument[];
+  mitarbeiter: Mitarbeiter[];
+  zeiteintraege: Zeiteintrag[];
+  zuschlagsregeln: Zuschlagsregel[];
 }
 
 let zustand: Zustand;
 
 async function datenNeuLaden(): Promise<void> {
-  const [konten, kostenstellen, buchungen, einstellungen, gutscheine, importregeln, importlaeufe, dokumente] = await Promise.all([
-    zustand.repo.konten(),
-    zustand.repo.kostenstellen(),
-    zustand.repo.buchungen(),
-    zustand.repo.mandantEinstellungen(),
-    zustand.repo.gutscheine(),
-    zustand.repo.importregeln(),
-    zustand.repo.importlaeufe(),
-    zustand.repo.dokumente(),
-  ]);
+  const [konten, kostenstellen, buchungen, einstellungen, gutscheine, importregeln, importlaeufe, dokumente, mitarbeiter, zeiteintraege, zuschlagsregeln] =
+    await Promise.all([
+      zustand.repo.konten(),
+      zustand.repo.kostenstellen(),
+      zustand.repo.buchungen(),
+      zustand.repo.mandantEinstellungen(),
+      zustand.repo.gutscheine(),
+      zustand.repo.importregeln(),
+      zustand.repo.importlaeufe(),
+      zustand.repo.dokumente(),
+      zustand.repo.mitarbeiterListe(),
+      zustand.repo.zeiteintraege(),
+      zustand.repo.zuschlagsregeln(),
+    ]);
   zustand.konten = konten;
   zustand.kostenstellen = kostenstellen;
   zustand.buchungen = buchungen;
@@ -157,6 +181,9 @@ async function datenNeuLaden(): Promise<void> {
   zustand.importregeln = importregeln;
   zustand.importlaeufe = importlaeufe;
   zustand.dokumente = dokumente;
+  zustand.mitarbeiter = mitarbeiter;
+  zustand.zeiteintraege = zeiteintraege;
+  zustand.zuschlagsregeln = zuschlagsregeln;
 }
 
 function kontoVon(nr: string): Konto | undefined {
@@ -1784,6 +1811,492 @@ async function monatspaketHerunterladen(): Promise<void> {
   zeigeMeldung(t(zustand.sprache, "gespeichert"));
 }
 
+// ---------- Mitarbeiter ----------
+
+const BESCHAEFTIGUNGSART_LABEL: Record<Beschaeftigungsart, string> = {
+  minijob: "besch_minijob",
+  teilzeit: "besch_teilzeit",
+  vollzeit: "besch_vollzeit",
+  aushilfe: "besch_aushilfe",
+};
+
+function renderMitarbeiter(): string {
+  const sortiert = [...zustand.mitarbeiter].sort((a, b) => a.name.localeCompare(b.name));
+  return (
+    topbarTitel(
+      t(zustand.sprache, "ma"),
+      `<button class="btn" data-aktion="mitarbeiter-neu">${icon("plus")}${t(zustand.sprache, "neu")}</button>`,
+    ) +
+    `<div class="card">${
+      sortiert.length
+        ? `<div class="tw"><table><thead><tr>
+            <th>${t(zustand.sprache, "name")}</th><th>${t(zustand.sprache, "beschaeftigungsart")}</th>
+            <th class="num">${t(zustand.sprache, "stundenlohn")}</th><th class="num">${t(zustand.sprache, "wochenstunden")}</th>
+            <th>${t(zustand.sprache, "status")}</th><th></th>
+          </tr></thead><tbody>
+            ${sortiert
+              .map(
+                (m) => `<tr>
+                  <td><b>${escapeHtml(m.name)}</b>${m.personalnr ? `<br><span class="hint">${escapeHtml(m.personalnr)}</span>` : ""}</td>
+                  <td>${t(zustand.sprache, BESCHAEFTIGUNGSART_LABEL[m.beschaeftigungsart])}</td>
+                  <td class="num">${formatEur(m.stundenlohn)} €</td>
+                  <td class="num">${m.wochenstunden}</td>
+                  <td><span class="pill ${m.aktiv ? "g" : "r"}">${t(zustand.sprache, m.aktiv ? "aktiv" : "inaktiv")}</span></td>
+                  <td style="text-align:end;white-space:nowrap">
+                    <button class="btn ghost sm" data-aktion="mitarbeiter-bearbeiten" data-id="${escapeHtml(m.id)}">${icon("edit")}</button>
+                    <button class="btn danger sm" data-aktion="mitarbeiter-loeschen" data-id="${escapeHtml(m.id)}">${icon("trash")}</button>
+                  </td>
+                </tr>`,
+              )
+              .join("")}
+          </tbody></table></div>`
+        : `<div class="empty">${t(zustand.sprache, "keine")}</div>`
+    }</div>`
+  );
+}
+
+function mitarbeiterFormular(id?: string): void {
+  const bestehend = id ? zustand.mitarbeiter.find((m) => m.id === id) : undefined;
+  const m = bestehend ?? {
+    id: "",
+    name: "",
+    personalnr: "",
+    rolle: "",
+    beschaeftigungsart: "minijob" as const,
+    eintritt: new Date().toISOString().slice(0, 10),
+    austritt: undefined as string | undefined,
+    stundenlohn: 0,
+    wochenstunden: 0,
+    urlaubstage_jahr: 20,
+    aktiv: true,
+  };
+  openModal(`
+    <div class="mhead"><h2 style="margin:0">${id ? t(zustand.sprache, "edit") : t(zustand.sprache, "neu")}</h2>
+      <button class="x" data-modal-close>${icon("x")}</button></div>
+    <div class="row">
+      <div style="flex:2"><label class="f">${t(zustand.sprache, "name")}</label><input id="f-name" value="${escapeHtml(m.name)}"></div>
+      <div><label class="f">${t(zustand.sprache, "personalnr")}</label><input id="f-personalnr" value="${escapeHtml(m.personalnr ?? "")}"></div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <div><label class="f">${t(zustand.sprache, "rolle")}</label><input id="f-rolle" value="${escapeHtml(m.rolle)}" placeholder="Verkauf"></div>
+      <div><label class="f">${t(zustand.sprache, "beschaeftigungsart")}</label>
+        <select id="f-beschaeftigungsart">
+          ${(["minijob", "teilzeit", "vollzeit", "aushilfe"] as const)
+            .map((x) => `<option value="${x}" ${m.beschaeftigungsart === x ? "selected" : ""}>${t(zustand.sprache, BESCHAEFTIGUNGSART_LABEL[x])}</option>`)
+            .join("")}
+        </select></div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <div><label class="f">${t(zustand.sprache, "eintritt")}</label><input type="date" id="f-eintritt" value="${m.eintritt}"></div>
+      <div><label class="f">${t(zustand.sprache, "austritt")}</label><input type="date" id="f-austritt" value="${m.austritt ?? ""}"></div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <div><label class="f">${t(zustand.sprache, "stundenlohn")}</label><input id="f-stundenlohn" value="${m.stundenlohn || ""}" placeholder="12,50"></div>
+      <div><label class="f">${t(zustand.sprache, "wochenstunden")}</label><input id="f-wochenstunden" value="${m.wochenstunden || ""}" placeholder="10"></div>
+      <div><label class="f">${t(zustand.sprache, "urlaubstage_jahr")}</label><input id="f-urlaubstage" value="${m.urlaubstage_jahr || ""}" placeholder="20"></div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <label class="f" style="display:flex;align-items:center;gap:8px;cursor:pointer">
+        <input type="checkbox" id="f-aktiv" ${m.aktiv ? "checked" : ""}> ${t(zustand.sprache, "aktiv")}
+      </label>
+    </div>
+    <div class="row" style="margin-top:20px;justify-content:flex-end">
+      <button class="btn ghost fit" data-modal-close>${t(zustand.sprache, "cancel")}</button>
+      <button class="btn fit" data-aktion="mitarbeiter-speichern" data-id="${id ?? ""}">${t(zustand.sprache, "save")}</button>
+    </div>
+  `);
+}
+
+async function mitarbeiterSpeichern(id: string): Promise<void> {
+  const name = document.querySelector<HTMLInputElement>("#f-name")?.value.trim() ?? "";
+  const eintritt = document.querySelector<HTMLInputElement>("#f-eintritt")?.value ?? "";
+  if (!name || !eintritt) {
+    zeigeMeldung(t(zustand.sprache, "fehler_pflichtfelder"));
+    return;
+  }
+  await zustand.repo.mitarbeiterSpeichern({
+    id: id || uid(),
+    name,
+    personalnr: document.querySelector<HTMLInputElement>("#f-personalnr")?.value.trim() || undefined,
+    rolle: document.querySelector<HTMLInputElement>("#f-rolle")?.value.trim() ?? "",
+    beschaeftigungsart: (document.querySelector<HTMLSelectElement>("#f-beschaeftigungsart")?.value ?? "minijob") as Beschaeftigungsart,
+    eintritt,
+    austritt: document.querySelector<HTMLInputElement>("#f-austritt")?.value || undefined,
+    stundenlohn: parseNumber(document.querySelector<HTMLInputElement>("#f-stundenlohn")?.value),
+    wochenstunden: parseNumber(document.querySelector<HTMLInputElement>("#f-wochenstunden")?.value),
+    urlaubstage_jahr: Math.round(parseNumber(document.querySelector<HTMLInputElement>("#f-urlaubstage")?.value)),
+    aktiv: document.querySelector<HTMLInputElement>("#f-aktiv")?.checked ?? true,
+  });
+  await datenNeuLaden();
+  closeModal();
+  render();
+  zeigeMeldung(t(zustand.sprache, "gespeichert"));
+}
+
+async function mitarbeiterLoeschen(id: string): Promise<void> {
+  if (!confirm(t(zustand.sprache, "loeschen_bestaetigen"))) return;
+  const ergebnis = await zustand.repo.mitarbeiterLoeschen(id);
+  if (!ergebnis.ok) {
+    zeigeMeldung(ergebnis.grund ?? t(zustand.sprache, "fehler_pflichtfelder"));
+    return;
+  }
+  await datenNeuLaden();
+  render();
+  zeigeMeldung(t(zustand.sprache, "geloescht"));
+}
+
+// ---------- Zeiterfassung ----------
+
+let stundenMitarbeiterId = "";
+let stundenMonat = "";
+
+const ZEITEINTRAG_ART_LABEL: Record<ZeiteintragArt, string> = {
+  arbeit: "art_arbeit",
+  urlaub: "art_urlaub",
+  krank: "art_krank",
+  feiertag: "art_feiertag",
+  frei: "art_frei",
+};
+
+const ZEITEINTRAG_STATUS_LABEL: Record<ZeiteintragStatus, string> = {
+  entwurf: "zstatus_entwurf",
+  eingereicht: "zstatus_eingereicht",
+  freigegeben: "zstatus_freigegeben",
+  abgelehnt: "zstatus_abgelehnt",
+};
+
+const ZEITEINTRAG_STATUS_PILL: Record<ZeiteintragStatus, string> = {
+  entwurf: "b",
+  eingereicht: "y",
+  freigegeben: "g",
+  abgelehnt: "r",
+};
+
+const ZUSCHLAG_ART_LABEL: Record<Zuschlagsregel["art"], string> = {
+  nacht: "zuschlag_nacht",
+  sonntag: "zuschlag_sonntag",
+  feiertag: "zuschlag_feiertag",
+};
+
+function renderZuschlagsregeln(): string {
+  if (!zustand.zuschlagsregeln.length) return `<div class="empty">${t(zustand.sprache, "keine")}</div>`;
+  return `<div class="tw"><table><thead><tr>
+      <th>${t(zustand.sprache, "art")}</th><th>${t(zustand.sprache, "von")}</th><th>${t(zustand.sprache, "bis")}</th>
+      <th class="num">%</th><th>${t(zustand.sprache, "aktiv")}</th><th></th>
+    </tr></thead><tbody>
+      ${zustand.zuschlagsregeln
+        .map(
+          (r) => `<tr>
+            <td>${t(zustand.sprache, ZUSCHLAG_ART_LABEL[r.art])}</td>
+            <td>${r.von_uhrzeit ?? "—"}</td><td>${r.bis_uhrzeit ?? "—"}</td>
+            <td class="num">${r.prozent} %</td><td>${r.aktiv ? "✓" : "—"}</td>
+            <td style="text-align:end;white-space:nowrap">
+              <button class="btn ghost sm" data-aktion="zuschlagsregel-bearbeiten" data-id="${escapeHtml(r.id)}">${icon("edit")}</button>
+              <button class="btn danger sm" data-aktion="zuschlagsregel-loeschen" data-id="${escapeHtml(r.id)}">${icon("trash")}</button>
+            </td>
+          </tr>`,
+        )
+        .join("")}
+    </tbody></table></div>`;
+}
+
+function renderStunden(): string {
+  if (!stundenMonat) stundenMonat = heutigerMonat();
+  if (!stundenMitarbeiterId && zustand.mitarbeiter.length) stundenMitarbeiterId = zustand.mitarbeiter[0].id;
+
+  const mitarbeiterAuswahl = `<select data-aktion="stunden-mitarbeiter-waehlen">
+    <option value="">${t(zustand.sprache, "mitarbeiter_waehlen")}</option>
+    ${zustand.mitarbeiter
+      .map((m) => `<option value="${escapeHtml(m.id)}" ${stundenMitarbeiterId === m.id ? "selected" : ""}>${escapeHtml(m.name)}</option>`)
+      .join("")}
+  </select>`;
+
+  const mitarbeiter = zustand.mitarbeiter.find((m) => m.id === stundenMitarbeiterId);
+  const eintraege = zustand.zeiteintraege
+    .filter((z) => z.mitarbeiter_id === stundenMitarbeiterId && z.datum.startsWith(stundenMonat))
+    .sort((a, b) => a.datum.localeCompare(b.datum));
+
+  const jahr = Number(stundenMonat.slice(0, 4));
+  const feiertage = feiertageNrw(jahr);
+  const pruefeFeiertag = (datum: string) => istFeiertag(datum, feiertage);
+  const regeln = zustand.zuschlagsregeln;
+
+  const zeilenHtml = eintraege.length
+    ? `<div class="tw"><table><thead><tr>
+        <th>${t(zustand.sprache, "date")}</th><th>${t(zustand.sprache, "art")}</th><th>${t(zustand.sprache, "zeiten")}</th>
+        <th class="num">${t(zustand.sprache, "stunden")}</th><th class="num">${t(zustand.sprache, "bruttolohn")}</th>
+        <th>${t(zustand.sprache, "status")}</th><th></th>
+      </tr></thead><tbody>
+        ${eintraege
+          .map((z) => {
+            const warnung = warnungZehnStunden(z.stunden);
+            const lohn = mitarbeiter ? bruttolohnFuerEintrag(z, mitarbeiter.stundenlohn, regeln, pruefeFeiertag) : 0;
+            return `<tr>
+              <td>${z.datum.split("-").reverse().join(".")}</td>
+              <td>${t(zustand.sprache, ZEITEINTRAG_ART_LABEL[z.art])}</td>
+              <td>${z.art === "arbeit" && z.von && z.bis ? `${z.von}–${z.bis}` : "—"}</td>
+              <td class="num">${z.stunden}${warnung ? ` <span class="pill y" title="${t(zustand.sprache, "warnung_zehn_stunden")}">!</span>` : ""}</td>
+              <td class="num">${formatEur(lohn)} €</td>
+              <td><span class="pill ${ZEITEINTRAG_STATUS_PILL[z.status]}">${t(zustand.sprache, ZEITEINTRAG_STATUS_LABEL[z.status])}</span></td>
+              <td style="text-align:end;white-space:nowrap">
+                ${z.status === "entwurf" ? `<button class="btn ghost sm" data-aktion="zeiteintrag-bearbeiten" data-id="${z.id}">${icon("edit")}</button>` : ""}
+                ${z.status === "entwurf" ? `<button class="btn ghost sm" data-aktion="zeiteintrag-einreichen" data-id="${z.id}">${t(zustand.sprache, "einreichen")}</button>` : ""}
+                ${z.status === "eingereicht" ? `<button class="btn ghost sm" data-aktion="zeiteintrag-freigeben" data-id="${z.id}">${t(zustand.sprache, "freigeben")}</button>` : ""}
+                ${z.status === "eingereicht" ? `<button class="btn ghost sm" data-aktion="zeiteintrag-ablehnen" data-id="${z.id}">${t(zustand.sprache, "ablehnen")}</button>` : ""}
+                <button class="btn danger sm" data-aktion="zeiteintrag-loeschen" data-id="${z.id}">${icon("trash")}</button>
+              </td>
+            </tr>`;
+          })
+          .join("")}
+      </tbody></table></div>`
+    : `<div class="empty">${t(zustand.sprache, "keine")}</div>`;
+
+  const summeStunden = round2(eintraege.reduce((s, z) => s + z.stunden, 0));
+  const summeLohn = mitarbeiter
+    ? round2(eintraege.reduce((s, z) => s + bruttolohnFuerEintrag(z, mitarbeiter.stundenlohn, regeln, pruefeFeiertag), 0))
+    : 0;
+
+  return (
+    topbarTitel(
+      t(zustand.sprache, "std"),
+      `<button class="btn" data-aktion="zeiteintrag-neu">${icon("plus")}${t(zustand.sprache, "addb")}</button>`,
+    ) +
+    `<div class="card">
+      <div class="row" style="align-items:flex-end;flex-wrap:wrap">
+        <div><label class="f">${t(zustand.sprache, "ma")}</label>${mitarbeiterAuswahl}</div>
+        <div><label class="f">${t(zustand.sprache, "bwa_monat")}</label><input type="month" data-aktion="stunden-monat" value="${stundenMonat}"></div>
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px">${zeilenHtml}
+      ${
+        eintraege.length
+          ? `<div class="row" style="margin-top:14px;justify-content:flex-end;gap:24px">
+        <span class="fit hint">${t(zustand.sprache, "stunden")} <b>${summeStunden}</b></span>
+        <span class="fit hint">${t(zustand.sprache, "bruttolohn")} <b>${formatEur(summeLohn)} €</b></span>
+      </div>`
+          : ""
+      }
+    </div>
+    <div class="card" style="margin-top:16px">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <h2 style="margin:0">${t(zustand.sprache, "zuschlagsregeln_titel")}</h2>
+        <div class="row fit" style="gap:8px">
+          <button class="btn ghost sm" data-aktion="zuschlagsregeln-laden">${t(zustand.sprache, "standardregeln_laden")}</button>
+          <button class="btn sm" data-aktion="zuschlagsregel-neu">${icon("plus")}${t(zustand.sprache, "zuschlagsregel_neu")}</button>
+        </div>
+      </div>
+      <div style="margin-top:12px">${renderZuschlagsregeln()}</div>
+    </div>`
+  );
+}
+
+function zeiteintragArtGeaendert(): void {
+  const art = document.querySelector<HTMLSelectElement>("#f-art")?.value;
+  const arbeitFelder = document.querySelector<HTMLDivElement>("#f-arbeit-felder");
+  if (arbeitFelder) arbeitFelder.hidden = art !== "arbeit";
+}
+
+function erfassungsartWaehlen(modus: "zeiten" | "stunden"): void {
+  const zeitenGruppe = document.querySelector<HTMLDivElement>("#f-zeiten-gruppe");
+  const stundenGruppe = document.querySelector<HTMLDivElement>("#f-stunden-gruppe");
+  if (zeitenGruppe) zeitenGruppe.hidden = modus !== "zeiten";
+  if (stundenGruppe) stundenGruppe.hidden = modus !== "stunden";
+  document.querySelectorAll<HTMLButtonElement>("[data-aktion='erfassungsart-waehlen']").forEach((btn) => {
+    btn.classList.toggle("on", btn.dataset.modus === modus);
+  });
+}
+
+function zeiteintragFormular(id?: string): void {
+  const bestehend = id ? zustand.zeiteintraege.find((z) => z.id === id) : undefined;
+  const z = bestehend ?? {
+    id: "",
+    mitarbeiter_id: stundenMitarbeiterId,
+    datum: new Date().toISOString().slice(0, 10),
+    von: undefined as string | undefined,
+    bis: undefined as string | undefined,
+    pause_min: 0,
+    stunden: 0,
+    art: "arbeit" as ZeiteintragArt,
+    notiz: "",
+    status: "entwurf" as ZeiteintragStatus,
+  };
+  // Neue Einträge starten im Kommen/Gehen-Modus (SPEC.md 5.7 nennt ihn zuerst);
+  // beim Bearbeiten wird der ursprünglich genutzte Modus anhand der vorhandenen
+  // Felder erkannt.
+  const erfassungsart = !bestehend || z.von || z.bis ? "zeiten" : "stunden";
+  openModal(`
+    <div class="mhead"><h2 style="margin:0">${id ? t(zustand.sprache, "edit") : t(zustand.sprache, "addb")}</h2>
+      <button class="x" data-modal-close>${icon("x")}</button></div>
+    <div class="row">
+      <div><label class="f">${t(zustand.sprache, "date")}</label><input type="date" id="f-datum" value="${z.datum}"></div>
+      <div><label class="f">${t(zustand.sprache, "art")}</label>
+        <select id="f-art" data-aktion="zeiteintrag-art-geaendert">
+          ${(["arbeit", "urlaub", "krank", "feiertag", "frei"] as const)
+            .map((x) => `<option value="${x}" ${z.art === x ? "selected" : ""}>${t(zustand.sprache, ZEITEINTRAG_ART_LABEL[x])}</option>`)
+            .join("")}
+        </select></div>
+    </div>
+    <div id="f-arbeit-felder" ${z.art !== "arbeit" ? "hidden" : ""}>
+      <div class="row" style="margin-top:12px">
+        <div class="seg fit">
+          <button type="button" data-aktion="erfassungsart-waehlen" data-modus="zeiten" class="${erfassungsart === "zeiten" ? "on" : ""}">${t(zustand.sprache, "erfassung_zeiten")}</button>
+          <button type="button" data-aktion="erfassungsart-waehlen" data-modus="stunden" class="${erfassungsart === "stunden" ? "on" : ""}">${t(zustand.sprache, "erfassung_stundenzahl")}</button>
+        </div>
+      </div>
+      <div id="f-zeiten-gruppe" class="row" style="margin-top:12px" ${erfassungsart !== "zeiten" ? "hidden" : ""}>
+        <div><label class="f">${t(zustand.sprache, "von")}</label><input type="time" id="f-von" value="${z.von ?? ""}"></div>
+        <div><label class="f">${t(zustand.sprache, "bis")}</label><input type="time" id="f-bis" value="${z.bis ?? ""}"></div>
+        <div><label class="f">${t(zustand.sprache, "pause_min")}</label><input id="f-pause" value="${z.pause_min || ""}" placeholder="30"></div>
+      </div>
+      <div id="f-stunden-gruppe" class="row" style="margin-top:12px" ${erfassungsart !== "stunden" ? "hidden" : ""}>
+        <div><label class="f">${t(zustand.sprache, "stunden")}</label><input id="f-stunden" value="${z.stunden || ""}" placeholder="8"></div>
+      </div>
+    </div>
+    <div class="row" style="margin-top:12px"><div><label class="f">${t(zustand.sprache, "notiz")}</label><input id="f-notiz" value="${escapeHtml(z.notiz ?? "")}"></div></div>
+    <div class="row" style="margin-top:20px;justify-content:flex-end">
+      <button class="btn ghost fit" data-modal-close>${t(zustand.sprache, "cancel")}</button>
+      <button class="btn fit" data-aktion="zeiteintrag-speichern" data-id="${id ?? ""}">${t(zustand.sprache, "save")}</button>
+    </div>
+  `);
+}
+
+async function zeiteintragSpeichern(id: string): Promise<void> {
+  const datum = document.querySelector<HTMLInputElement>("#f-datum")?.value ?? "";
+  const art = (document.querySelector<HTMLSelectElement>("#f-art")?.value ?? "arbeit") as ZeiteintragArt;
+  if (!datum || !stundenMitarbeiterId) {
+    zeigeMeldung(t(zustand.sprache, "fehler_pflichtfelder"));
+    return;
+  }
+  const stundenGruppeSichtbar = document.querySelector<HTMLDivElement>("#f-stunden-gruppe")?.hidden === false;
+  const zeitenModus = art === "arbeit" && !stundenGruppeSichtbar;
+  const von = zeitenModus ? document.querySelector<HTMLInputElement>("#f-von")?.value || undefined : undefined;
+  const bis = zeitenModus ? document.querySelector<HTMLInputElement>("#f-bis")?.value || undefined : undefined;
+  const pause_min = zeitenModus ? Math.round(parseNumber(document.querySelector<HTMLInputElement>("#f-pause")?.value)) : 0;
+  const stundenEingabe = art === "arbeit" && stundenGruppeSichtbar ? parseNumber(document.querySelector<HTMLInputElement>("#f-stunden")?.value) : undefined;
+  const notiz = document.querySelector<HTMLInputElement>("#f-notiz")?.value.trim() ?? "";
+
+  const stunden = berechneStunden({ datum, von, bis, pause_min, stunden: stundenEingabe, art });
+
+  await zustand.repo.zeiteintragSpeichern({
+    id: id || uid(),
+    mitarbeiter_id: stundenMitarbeiterId,
+    datum,
+    von,
+    bis,
+    pause_min,
+    stunden,
+    art,
+    notiz,
+    status: "entwurf",
+  });
+  await datenNeuLaden();
+  closeModal();
+  render();
+  zeigeMeldung(t(zustand.sprache, "gespeichert"));
+}
+
+async function zeiteintragLoeschenAktion(id: string): Promise<void> {
+  if (!confirm(t(zustand.sprache, "loeschen_bestaetigen"))) return;
+  await zustand.repo.zeiteintragLoeschen(id);
+  await datenNeuLaden();
+  render();
+  zeigeMeldung(t(zustand.sprache, "geloescht"));
+}
+
+async function zeiteintragEinreichenAktion(id: string): Promise<void> {
+  await zustand.repo.zeiteintragEinreichen(id);
+  await datenNeuLaden();
+  render();
+  zeigeMeldung(t(zustand.sprache, "gespeichert"));
+}
+
+async function zeiteintragFreigebenAktion(id: string): Promise<void> {
+  await zustand.repo.zeiteintragFreigeben(id);
+  await datenNeuLaden();
+  render();
+  zeigeMeldung(t(zustand.sprache, "gespeichert"));
+}
+
+async function zeiteintragAblehnenAktion(id: string): Promise<void> {
+  await zustand.repo.zeiteintragAblehnen(id);
+  await datenNeuLaden();
+  render();
+  zeigeMeldung(t(zustand.sprache, "gespeichert"));
+}
+
+function zuschlagArtGeaendert(): void {
+  const art = document.querySelector<HTMLSelectElement>("#f-zuschlag-art")?.value;
+  const zeitenGruppe = document.querySelector<HTMLDivElement>("#f-zuschlag-zeiten");
+  if (zeitenGruppe) zeitenGruppe.hidden = art !== "nacht";
+}
+
+function zuschlagsregelFormular(id?: string): void {
+  const bestehend = id ? zustand.zuschlagsregeln.find((r) => r.id === id) : undefined;
+  const r = bestehend ?? { id: "", art: "nacht" as const, von_uhrzeit: "22:00", bis_uhrzeit: "06:00", prozent: 25, aktiv: true };
+  openModal(`
+    <div class="mhead"><h2 style="margin:0">${id ? t(zustand.sprache, "edit") : t(zustand.sprache, "zuschlagsregel_neu")}</h2>
+      <button class="x" data-modal-close>${icon("x")}</button></div>
+    <div class="row">
+      <div><label class="f">${t(zustand.sprache, "art")}</label>
+        <select id="f-zuschlag-art" data-aktion="zuschlag-art-geaendert">
+          ${(["nacht", "sonntag", "feiertag"] as const)
+            .map((x) => `<option value="${x}" ${r.art === x ? "selected" : ""}>${t(zustand.sprache, ZUSCHLAG_ART_LABEL[x])}</option>`)
+            .join("")}
+        </select></div>
+      <div><label class="f">%</label><input id="f-zuschlag-prozent" value="${r.prozent}"></div>
+    </div>
+    <div id="f-zuschlag-zeiten" class="row" style="margin-top:12px" ${r.art !== "nacht" ? "hidden" : ""}>
+      <div><label class="f">${t(zustand.sprache, "von")}</label><input type="time" id="f-zuschlag-von" value="${r.von_uhrzeit ?? ""}"></div>
+      <div><label class="f">${t(zustand.sprache, "bis")}</label><input type="time" id="f-zuschlag-bis" value="${r.bis_uhrzeit ?? ""}"></div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <label class="f" style="display:flex;align-items:center;gap:8px;cursor:pointer">
+        <input type="checkbox" id="f-zuschlag-aktiv" ${r.aktiv ? "checked" : ""}> ${t(zustand.sprache, "aktiv")}
+      </label>
+    </div>
+    <div class="row" style="margin-top:20px;justify-content:flex-end">
+      <button class="btn ghost fit" data-modal-close>${t(zustand.sprache, "cancel")}</button>
+      <button class="btn fit" data-aktion="zuschlagsregel-speichern" data-id="${id ?? ""}">${t(zustand.sprache, "save")}</button>
+    </div>
+  `);
+}
+
+async function zuschlagsregelSpeichern(id: string): Promise<void> {
+  const art = (document.querySelector<HTMLSelectElement>("#f-zuschlag-art")?.value ?? "nacht") as Zuschlagsregel["art"];
+  const prozent = parseNumber(document.querySelector<HTMLInputElement>("#f-zuschlag-prozent")?.value);
+  await zustand.repo.zuschlagsregelSpeichern({
+    id: id || uid(),
+    art,
+    von_uhrzeit: art === "nacht" ? document.querySelector<HTMLInputElement>("#f-zuschlag-von")?.value || undefined : undefined,
+    bis_uhrzeit: art === "nacht" ? document.querySelector<HTMLInputElement>("#f-zuschlag-bis")?.value || undefined : undefined,
+    prozent,
+    aktiv: document.querySelector<HTMLInputElement>("#f-zuschlag-aktiv")?.checked ?? true,
+  });
+  await datenNeuLaden();
+  closeModal();
+  render();
+  zeigeMeldung(t(zustand.sprache, "gespeichert"));
+}
+
+async function zuschlagsregelLoeschenAktion(id: string): Promise<void> {
+  if (!confirm(t(zustand.sprache, "loeschen_bestaetigen"))) return;
+  await zustand.repo.zuschlagsregelLoeschen(id);
+  await datenNeuLaden();
+  render();
+  zeigeMeldung(t(zustand.sprache, "geloescht"));
+}
+
+async function standardZuschlagsregelnLaden(): Promise<void> {
+  const vorhandeneArten = new Set(zustand.zuschlagsregeln.map((r) => r.art));
+  for (const regel of standardZuschlagsregeln()) {
+    if (vorhandeneArten.has(regel.art)) continue;
+    await zustand.repo.zuschlagsregelSpeichern({ id: uid(), ...regel });
+  }
+  await datenNeuLaden();
+  render();
+  zeigeMeldung(t(zustand.sprache, "gespeichert"));
+}
+
 // ---------- Platzhalter für kommende Phasen ----------
 
 function renderPlatzhalter(): string {
@@ -1825,6 +2338,10 @@ function renderInhalt(): string {
       return renderDiagramme();
     case "belegablage":
       return renderBelegablage();
+    case "mitarbeiter":
+      return renderMitarbeiter();
+    case "stunden":
+      return renderStunden();
     default:
       return renderPlatzhalter();
   }
@@ -2021,6 +2538,57 @@ function einrichten(): void {
       case "monatspaket-herunterladen":
         void monatspaketHerunterladen();
         break;
+      case "mitarbeiter-neu":
+        mitarbeiterFormular();
+        break;
+      case "mitarbeiter-bearbeiten":
+        if (id) mitarbeiterFormular(id);
+        break;
+      case "mitarbeiter-speichern":
+        void mitarbeiterSpeichern(id ?? "");
+        break;
+      case "mitarbeiter-loeschen":
+        if (id) void mitarbeiterLoeschen(id);
+        break;
+      case "zeiteintrag-neu":
+        zeiteintragFormular();
+        break;
+      case "zeiteintrag-bearbeiten":
+        if (id) zeiteintragFormular(id);
+        break;
+      case "zeiteintrag-speichern":
+        void zeiteintragSpeichern(id ?? "");
+        break;
+      case "zeiteintrag-loeschen":
+        if (id) void zeiteintragLoeschenAktion(id);
+        break;
+      case "zeiteintrag-einreichen":
+        if (id) void zeiteintragEinreichenAktion(id);
+        break;
+      case "zeiteintrag-freigeben":
+        if (id) void zeiteintragFreigebenAktion(id);
+        break;
+      case "zeiteintrag-ablehnen":
+        if (id) void zeiteintragAblehnenAktion(id);
+        break;
+      case "erfassungsart-waehlen":
+        erfassungsartWaehlen((aktionBtn.dataset.modus as "zeiten" | "stunden") ?? "zeiten");
+        break;
+      case "zuschlagsregel-neu":
+        zuschlagsregelFormular();
+        break;
+      case "zuschlagsregel-bearbeiten":
+        if (id) zuschlagsregelFormular(id);
+        break;
+      case "zuschlagsregel-speichern":
+        void zuschlagsregelSpeichern(id ?? "");
+        break;
+      case "zuschlagsregel-loeschen":
+        if (id) void zuschlagsregelLoeschenAktion(id);
+        break;
+      case "zuschlagsregeln-laden":
+        void standardZuschlagsregelnLaden();
+        break;
     }
   });
 
@@ -2096,6 +2664,26 @@ function einrichten(): void {
       belegablageMonat = belegablageMonatFeld.value;
       render();
     }
+
+    const stundenMitarbeiterSelect = ziel.closest<HTMLSelectElement>("[data-aktion='stunden-mitarbeiter-waehlen']");
+    if (stundenMitarbeiterSelect) {
+      stundenMitarbeiterId = stundenMitarbeiterSelect.value;
+      render();
+    }
+
+    const stundenMonatFeld = ziel.closest<HTMLInputElement>("[data-aktion='stunden-monat']");
+    if (stundenMonatFeld) {
+      stundenMonat = stundenMonatFeld.value;
+      render();
+    }
+
+    if (ziel.closest("[data-aktion='zeiteintrag-art-geaendert']")) {
+      zeiteintragArtGeaendert();
+    }
+
+    if (ziel.closest("[data-aktion='zuschlag-art-geaendert']")) {
+      zuschlagArtGeaendert();
+    }
   });
 
   document.addEventListener("keydown", (ereignis) => {
@@ -2122,6 +2710,9 @@ async function start(): Promise<void> {
     importregeln: [],
     importlaeufe: [],
     dokumente: [],
+    mitarbeiter: [],
+    zeiteintraege: [],
+    zuschlagsregeln: [],
   };
   await datenNeuLaden();
   einrichten();

@@ -25,6 +25,12 @@
 * {
   box-sizing: border-box;
 }
+/* Ohne diese Regel gewinnt jede Klasse, die selbst "display" setzt (z. B. .row),
+   gegen das hidden-Attribut, weil Autorregeln immer vor der UA-Standardregel
+   [hidden]{display:none} greifen — Formularabschnitte blieben dann sichtbar. */
+[hidden] {
+  display: none !important;
+}
 html,
 body {
   margin: 0;
