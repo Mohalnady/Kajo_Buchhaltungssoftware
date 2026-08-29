@@ -14,10 +14,11 @@ import { spaltenErkennen, type DublettenKandidat, type ImportFeld } from "./lib/
 import { zeileZuKandidat, type ImportKandidat } from "./lib/importkandidaten.ts";
 import { standardImportRegeln } from "./lib/standardimportregeln.ts";
 import { buchungenZuCsv } from "./lib/buchungscsv.ts";
-import { bwaBericht } from "./lib/bwa.ts";
+import { BWA_GRUPPEN, bwaBericht, monatVerschieben, summenNachGruppe } from "./lib/bwa.ts";
 import { euerBericht, type EuerZeile } from "./lib/euer.ts";
 import { ustVoranmeldung } from "./lib/ustva.ts";
 import { kontenblatt, summenUndSalden } from "./lib/berichte.ts";
+import { monatsReihe } from "./lib/diagramme.ts";
 
 // P1-Grundgerüst: Navigation und Design aus dem Prototyp (referenz/prototyp.html),
 // aber als echte TypeScript-Struktur statt einer HTML-Datei. Buchungen,
@@ -94,6 +95,7 @@ const NAV: NavEintrag[] = [
   { typ: "ziel", key: "euer", label: "euer", icon: "doc" },
   { typ: "ziel", key: "ustva", label: "ust", icon: "pct" },
   { typ: "ziel", key: "berichte", label: "berichte", icon: "list" },
+  { typ: "ziel", key: "diagramme", label: "diagramme", icon: "chart" },
   { typ: "trenner", label: "pers" },
   { typ: "ziel", key: "mitarbeiter", label: "ma", icon: "users", phase: "P4" },
   { typ: "ziel", key: "stunden", label: "std", icon: "clock", phase: "P4" },
@@ -1439,6 +1441,222 @@ function renderBerichte(): string {
   );
 }
 
+// ---------- Diagramme ----------
+
+const DIAGRAMM_PALETTE = [
+  "#f6ce45",
+  "#e0524f",
+  "#3ba55c",
+  "#2a5ca5",
+  "#a33b58",
+  "#8c9199",
+  "#7b61ff",
+  "#00b8a9",
+  "#ff8c42",
+  "#6b4226",
+  "#41454d",
+  "#c9184a",
+];
+
+function svgLinienChart(reihen: { label: string; farbe: string; werte: number[] }[], beschriftungen: string[]): string {
+  const breite = 720;
+  const hoehe = 200;
+  const padLinks = 16;
+  const padUnten = 26;
+  const padOben = 16;
+  const padRechts = 16;
+  const innenBreite = breite - padLinks - padRechts;
+  const innenHoehe = hoehe - padOben - padUnten;
+
+  const alleWerte = reihen.flatMap((r) => r.werte);
+  const max = Math.max(0, ...alleWerte);
+  const min = Math.min(0, ...alleWerte);
+  const spanne = max - min || 1;
+
+  const x = (i: number) => padLinks + (innenBreite * i) / Math.max(1, beschriftungen.length - 1);
+  const y = (wert: number) => padOben + innenHoehe - ((wert - min) / spanne) * innenHoehe;
+  const nulllinieY = y(0);
+
+  const pfade = reihen
+    .map((reihe) => {
+      const punkte = reihe.werte.map((w, i) => `${x(i)},${y(w)}`).join(" ");
+      const punkteKreise = reihe.werte.map((w, i) => `<circle cx="${x(i)}" cy="${y(w)}" r="3" fill="${reihe.farbe}"/>`).join("");
+      return `<polyline points="${punkte}" fill="none" stroke="${reihe.farbe}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>${punkteKreise}`;
+    })
+    .join("");
+
+  const beschriftungenHtml = beschriftungen
+    .map((b, i) => `<text x="${x(i)}" y="${hoehe - 6}" font-size="10" fill="var(--muted)" text-anchor="middle">${escapeHtml(b)}</text>`)
+    .join("");
+
+  const legende = reihen
+    .map(
+      (r) => `<span style="display:inline-flex;align-items:center;gap:6px;margin-inline-end:16px">
+      <span style="width:10px;height:10px;border-radius:50%;background:${r.farbe};display:inline-block"></span>${escapeHtml(r.label)}
+    </span>`,
+    )
+    .join("");
+
+  return `<div class="hint" style="margin-bottom:8px;display:flex;flex-wrap:wrap">${legende}</div>
+    <svg viewBox="0 0 ${breite} ${hoehe}" style="width:100%;height:auto;display:block" preserveAspectRatio="xMidYMid meet">
+      <line x1="${padLinks}" y1="${nulllinieY}" x2="${breite - padRechts}" y2="${nulllinieY}" stroke="var(--line)" stroke-width="1"/>
+      ${pfade}
+      ${beschriftungenHtml}
+    </svg>`;
+}
+
+function svgBalkenChart(werte: { label: string; wert: number }[]): string {
+  const breite = 720;
+  const hoehe = 200;
+  const padLinks = 8;
+  const padUnten = 26;
+  const padOben = 16;
+  const padRechts = 8;
+  const innenBreite = breite - padLinks - padRechts;
+  const innenHoehe = hoehe - padOben - padUnten;
+
+  const alle = werte.map((w) => w.wert);
+  const max = Math.max(0, ...alle);
+  const min = Math.min(0, ...alle);
+  const spanne = max - min || 1;
+  const nulllinieY = padOben + innenHoehe - ((0 - min) / spanne) * innenHoehe;
+
+  const breitePerBalken = innenBreite / Math.max(1, werte.length);
+  const balkenBreite = breitePerBalken * 0.6;
+
+  const balken = werte
+    .map((w, i) => {
+      const balkenY = padOben + innenHoehe - ((w.wert - min) / spanne) * innenHoehe;
+      const bx = padLinks + i * breitePerBalken + (breitePerBalken - balkenBreite) / 2;
+      const by = Math.min(balkenY, nulllinieY);
+      const bh = Math.max(Math.abs(balkenY - nulllinieY), 1);
+      const farbe = w.wert >= 0 ? "var(--pos)" : "var(--neg)";
+      return `<rect x="${bx}" y="${by}" width="${balkenBreite}" height="${bh}" fill="${farbe}" rx="3"/>
+        <text x="${bx + balkenBreite / 2}" y="${hoehe - 6}" font-size="10" fill="var(--muted)" text-anchor="middle">${escapeHtml(w.label)}</text>`;
+    })
+    .join("");
+
+  return `<svg viewBox="0 0 ${breite} ${hoehe}" style="width:100%;height:auto;display:block" preserveAspectRatio="xMidYMid meet">
+    <line x1="${padLinks}" y1="${nulllinieY}" x2="${breite - padRechts}" y2="${nulllinieY}" stroke="var(--line)" stroke-width="1"/>
+    ${balken}
+  </svg>`;
+}
+
+function svgDonutChart(anteile: { label: string; wert: number; farbe: string }[]): string {
+  const groesse = 220;
+  const radius = 80;
+  const innenRadius = 46;
+  const mitte = groesse / 2;
+  const gesamt = anteile.reduce((s, a) => s + Math.abs(a.wert), 0) || 1;
+
+  let winkelStart = -Math.PI / 2;
+  const segmente = anteile
+    .map((a) => {
+      const anteil = Math.abs(a.wert) / gesamt;
+      const winkelEnde = winkelStart + anteil * Math.PI * 2;
+      const grossBogen = winkelEnde - winkelStart > Math.PI ? 1 : 0;
+      const x1 = mitte + radius * Math.cos(winkelStart);
+      const y1 = mitte + radius * Math.sin(winkelStart);
+      const x2 = mitte + radius * Math.cos(winkelEnde);
+      const y2 = mitte + radius * Math.sin(winkelEnde);
+      const ix1 = mitte + innenRadius * Math.cos(winkelEnde);
+      const iy1 = mitte + innenRadius * Math.sin(winkelEnde);
+      const ix2 = mitte + innenRadius * Math.cos(winkelStart);
+      const iy2 = mitte + innenRadius * Math.sin(winkelStart);
+      const pfad = `M ${x1} ${y1} A ${radius} ${radius} 0 ${grossBogen} 1 ${x2} ${y2} L ${ix1} ${iy1} A ${innenRadius} ${innenRadius} 0 ${grossBogen} 0 ${ix2} ${iy2} Z`;
+      winkelStart = winkelEnde;
+      return `<path d="${pfad}" fill="${a.farbe}"/>`;
+    })
+    .join("");
+
+  const legende = anteile
+    .map(
+      (a) => `<div class="row" style="gap:8px;align-items:center">
+        <span class="fit" style="width:10px;height:10px;border-radius:50%;background:${a.farbe};display:inline-block"></span>
+        <span>${escapeHtml(a.label)}</span><b class="fit">${formatEur(a.wert)} €</b>
+      </div>`,
+    )
+    .join("");
+
+  return `<div class="row" style="gap:24px;flex-wrap:wrap;align-items:center">
+    <svg viewBox="0 0 ${groesse} ${groesse}" style="width:200px;height:200px;flex-shrink:0">${segmente}</svg>
+    <div style="flex:1;min-width:200px;display:flex;flex-direction:column;gap:8px">${legende}</div>
+  </div>`;
+}
+
+function renderDiagramme(): string {
+  const bisMonat = heutigerMonat();
+  const reihe = monatsReihe(zustand.buchungen, kontoVon, zustand.kleinunternehmer, zustand.versteuerung, bisMonat, 12);
+  const beschriftungen = reihe.map((r) => `${r.monat.slice(5)}.${r.monat.slice(2, 4)}`);
+
+  const umsatzverlauf = svgLinienChart(
+    [{ label: t(zustand.sprache, "bwa_umsatz"), farbe: "var(--pos)", werte: reihe.map((r) => r.umsatz) }],
+    beschriftungen,
+  );
+
+  const ergebnisChart = svgBalkenChart(reihe.map((r, i) => ({ label: beschriftungen[i], wert: r.ergebnis })));
+
+  const kasseReihe = reihe.map((r) => kassenstand(zustand.buchungen, zustand.kassenAnfangsbestand, "1000", kontoVon, monatsSpanne(r.monat).bis));
+  const bankReihe = reihe.map((r) => kassenstand(zustand.buchungen, 0, "1200", kontoVon, monatsSpanne(r.monat).bis));
+  const kasseUndBank = svgLinienChart(
+    [
+      { label: t(zustand.sprache, "kasse"), farbe: "var(--pos)", werte: kasseReihe },
+      { label: "Bank", farbe: "#2a5ca5", werte: bankReihe },
+    ],
+    beschriftungen,
+  );
+
+  const personalChart = svgLinienChart(
+    [
+      { label: t(zustand.sprache, "bwa_umsatz"), farbe: "var(--pos)", werte: reihe.map((r) => r.umsatz) },
+      { label: t(zustand.sprache, "bwa_personal"), farbe: "#a33b58", werte: reihe.map((r) => r.personalkosten) },
+    ],
+    beschriftungen,
+  );
+
+  const vorjahrBisMonat = monatVerschieben(bisMonat, -12);
+  const vorjahrReihe = monatsReihe(zustand.buchungen, kontoVon, zustand.kleinunternehmer, zustand.versteuerung, vorjahrBisMonat, 12);
+  const monatsNamen = beschriftungen.map((_, i) => `M${i + 1}`);
+  const vorjahresvergleich = svgLinienChart(
+    [
+      { label: t(zustand.sprache, "diag_vj_aktuell"), farbe: "var(--pos)", werte: reihe.map((r) => r.umsatz) },
+      { label: t(zustand.sprache, "diag_vj_vorjahr"), farbe: "var(--muted)", werte: vorjahrReihe.map((r) => r.umsatz) },
+    ],
+    monatsNamen,
+  );
+
+  const ustChart = svgBalkenChart(reihe.map((r, i) => ({ label: beschriftungen[i], wert: r.ustZahllast })));
+
+  const gruppenAktuellerMonat = summenNachGruppe(
+    zustand.buchungen.filter((b) => b.datum.startsWith(bisMonat)),
+    kontoVon,
+    zustand.kleinunternehmer,
+  );
+  const kostenGruppen = BWA_GRUPPEN.filter((g) => g.gruppe !== "umsatz" && (gruppenAktuellerMonat[g.gruppe] ?? 0) !== 0);
+  const kostenverteilung = kostenGruppen.length
+    ? svgDonutChart(
+        kostenGruppen.map((g, i) => ({
+          label: t(zustand.sprache, g.label),
+          wert: Math.abs(gruppenAktuellerMonat[g.gruppe] ?? 0),
+          farbe: DIAGRAMM_PALETTE[i % DIAGRAMM_PALETTE.length],
+        })),
+      )
+    : `<div class="empty">${t(zustand.sprache, "keine")}</div>`;
+
+  const karte = (titel: string, inhalt: string) => `<div class="card" style="margin-top:16px"><h2 style="margin-top:0">${t(zustand.sprache, titel)}</h2>${inhalt}</div>`;
+
+  return (
+    topbarTitel(t(zustand.sprache, "diagramme")) +
+    karte("diag_umsatzverlauf", umsatzverlauf) +
+    karte("diag_ergebnis", ergebnisChart) +
+    karte("diag_kasse_bank", kasseUndBank) +
+    karte("diag_personal", personalChart) +
+    karte("diag_vorjahresvergleich", vorjahresvergleich) +
+    karte("diag_ustverlauf", ustChart) +
+    karte("diag_kostenverteilung", kostenverteilung)
+  );
+}
+
 // ---------- Platzhalter für kommende Phasen ----------
 
 function renderPlatzhalter(): string {
@@ -1476,6 +1694,8 @@ function renderInhalt(): string {
       return renderUstva();
     case "berichte":
       return renderBerichte();
+    case "diagramme":
+      return renderDiagramme();
     default:
       return renderPlatzhalter();
   }

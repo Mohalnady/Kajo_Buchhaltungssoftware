@@ -165,6 +165,16 @@ const de: Woerterbuch = {
   journal_titel: "Journal",
   saldenliste_titel: "Summen- und Saldenliste",
   kontenblatt_titel: "Kontenblatt",
+  diagramme: "Diagramme",
+  diag_umsatzverlauf: "Umsatzverlauf",
+  diag_ergebnis: "Ergebnis pro Monat",
+  diag_kasse_bank: "Kasse und Bank",
+  diag_personal: "Personalkosten",
+  diag_vorjahresvergleich: "Vorjahresvergleich",
+  diag_ustverlauf: "Umsatzsteuer",
+  diag_kostenverteilung: "Kostenverteilung",
+  diag_vj_aktuell: "Laufendes Jahr",
+  diag_vj_vorjahr: "Vorjahr",
 };
 
 const en: Woerterbuch = {
@@ -321,6 +331,16 @@ const en: Woerterbuch = {
   journal_titel: "Journal",
   saldenliste_titel: "Trial balance",
   kontenblatt_titel: "Account ledger",
+  diagramme: "Charts",
+  diag_umsatzverlauf: "Revenue trend",
+  diag_ergebnis: "Result per month",
+  diag_kasse_bank: "Cash and bank",
+  diag_personal: "Staff costs",
+  diag_vorjahresvergleich: "Year-over-year comparison",
+  diag_ustverlauf: "VAT",
+  diag_kostenverteilung: "Cost breakdown",
+  diag_vj_aktuell: "Current year",
+  diag_vj_vorjahr: "Previous year",
 };
 
 const ar: Woerterbuch = {
@@ -477,6 +497,16 @@ const ar: Woerterbuch = {
   journal_titel: "دفتر اليومية",
   saldenliste_titel: "ميزان المراجعة",
   kontenblatt_titel: "كشف الحساب",
+  diagramme: "الرسوم البيانية",
+  diag_umsatzverlauf: "تطور الإيرادات",
+  diag_ergebnis: "النتيجة الشهرية",
+  diag_kasse_bank: "الصندوق والبنك",
+  diag_personal: "تكاليف الموظفين",
+  diag_vorjahresvergleich: "مقارنة بالعام السابق",
+  diag_ustverlauf: "ضريبة القيمة المضافة",
+  diag_kostenverteilung: "توزيع التكاليف",
+  diag_vj_aktuell: "السنة الحالية",
+  diag_vj_vorjahr: "السنة السابقة",
 };
 
 export const WOERTERBUECHER: Record<Sprache, Woerterbuch> = { de, en, ar };
