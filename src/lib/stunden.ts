@@ -1,8 +1,9 @@
 // Stunden-, Zuschlags- und Bruttolohnberechnung. Siehe SPEC.md Abschnitt 5.7.
 
 import { round2 } from "./numbers.ts";
+import type { ZeiteintragArt, Zuschlagsregel } from "./types.ts";
 
-export type ZeiteintragArt = "arbeit" | "urlaub" | "krank" | "feiertag" | "frei";
+export type { ZeiteintragArt, Zuschlagsregel } from "./types.ts";
 
 export interface ZeiteintragEingabe {
   datum: string; // JJJJ-MM-TT
@@ -11,15 +12,6 @@ export interface ZeiteintragEingabe {
   pause_min: number;
   stunden?: number; // direkt angegeben, Alternative zu von/bis
   art: ZeiteintragArt;
-}
-
-export interface Zuschlagsregel {
-  id: string;
-  art: "nacht" | "sonntag" | "feiertag";
-  von_uhrzeit?: string; // "HH:MM", nur bei art "nacht"
-  bis_uhrzeit?: string;
-  prozent: number;
-  aktiv: boolean;
 }
 
 /** Startwerte aus SPEC.md 5.7: Nacht 25 %, Sonntag 50 %, Feiertag 125 %. */

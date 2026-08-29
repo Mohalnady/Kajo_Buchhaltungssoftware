@@ -6,7 +6,20 @@
 // Arbeitsspeicher. Die Oberfläche in main.ts kennt nur dieses Interface und
 // muss zwischen beidem nicht unterscheiden.
 
-import type { Beleg, Buchung, Dokument, DokumentTyp, ImportFormat, Importlauf, Importregel, Konto, Kostenstelle } from "../lib/types.ts";
+import type {
+  Beleg,
+  Buchung,
+  Dokument,
+  DokumentTyp,
+  ImportFormat,
+  Importlauf,
+  Importregel,
+  Konto,
+  Kostenstelle,
+  Mitarbeiter,
+  Zeiteintrag,
+  Zuschlagsregel,
+} from "../lib/types.ts";
 import type { Gutschein } from "../lib/gutschein.ts";
 
 export interface LoeschErgebnis {
@@ -94,4 +107,19 @@ export interface Datenquelle {
   dokumentHinzufuegen(neuesDokument: NeuesDokument): Promise<void>;
   dokumentLoeschen(id: string): Promise<void>;
   dokumentInhalt(dokument: Dokument): Promise<Blob>;
+
+  mitarbeiterListe(): Promise<Mitarbeiter[]>;
+  mitarbeiterSpeichern(mitarbeiter: Mitarbeiter): Promise<void>;
+  mitarbeiterLoeschen(id: string): Promise<LoeschErgebnis>;
+
+  zeiteintraege(): Promise<Zeiteintrag[]>;
+  zeiteintragSpeichern(eintrag: Zeiteintrag): Promise<void>;
+  zeiteintragLoeschen(id: string): Promise<void>;
+  zeiteintragEinreichen(id: string): Promise<void>;
+  zeiteintragFreigeben(id: string): Promise<void>;
+  zeiteintragAblehnen(id: string): Promise<void>;
+
+  zuschlagsregeln(): Promise<Zuschlagsregel[]>;
+  zuschlagsregelSpeichern(regel: Zuschlagsregel): Promise<void>;
+  zuschlagsregelLoeschen(id: string): Promise<void>;
 }

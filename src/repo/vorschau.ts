@@ -2,7 +2,7 @@
 // keine SQLite-Anbindung möglich). Änderungen bleiben nur für die laufende
 // Sitzung erhalten und gehen beim Neuladen der Seite verloren.
 
-import type { Beleg, Buchung, Dokument, Importlauf, Importregel, Konto, Kostenstelle } from "../lib/types.ts";
+import type { Beleg, Buchung, Dokument, Importlauf, Importregel, Konto, Kostenstelle, Mitarbeiter, Zeiteintrag, Zuschlagsregel } from "../lib/types.ts";
 import type { Gutschein } from "../lib/gutschein.ts";
 import { offenerBetrag, statusNachEinloesung } from "../lib/gutschein.ts";
 import { round2 } from "../lib/numbers.ts";
@@ -43,6 +43,9 @@ export function erstelleVorschauDatenquelle(): Datenquelle {
   const importregeln: Importregel[] = [];
   const importlaeufe: Importlauf[] = [];
   const dokumente: Dokument[] = [];
+  const mitarbeiterListe: Mitarbeiter[] = [];
+  const zeiteintraege: Zeiteintrag[] = [];
+  const zuschlagsregeln: Zuschlagsregel[] = [];
 
   return {
     modus: "vorschau",
@@ -231,6 +234,64 @@ export function erstelleVorschauDatenquelle(): Datenquelle {
     },
     async dokumentInhalt(dokument) {
       return dokumentBlobs.get(dokument.id) ?? new Blob([]);
+    },
+
+    async mitarbeiterListe() {
+      return mitarbeiterListe.slice();
+    },
+    async mitarbeiterSpeichern(mitarbeiter) {
+      const i = mitarbeiterListe.findIndex((m) => m.id === mitarbeiter.id);
+      if (i >= 0) mitarbeiterListe[i] = mitarbeiter;
+      else mitarbeiterListe.push(mitarbeiter);
+    },
+    async mitarbeiterLoeschen(id): Promise<LoeschErgebnis> {
+      if (zeiteintraege.some((z) => z.mitarbeiter_id === id)) {
+        return { ok: false, grund: "Mitarbeiter hat noch Zeiteinträge." };
+      }
+      const i = mitarbeiterListe.findIndex((m) => m.id === id);
+      if (i >= 0) mitarbeiterListe.splice(i, 1);
+      return { ok: true };
+    },
+
+    async zeiteintraege() {
+      return zeiteintraege.slice();
+    },
+    async zeiteintragSpeichern(eintrag) {
+      const i = zeiteintraege.findIndex((z) => z.id === eintrag.id);
+      if (i >= 0) zeiteintraege[i] = eintrag;
+      else zeiteintraege.push(eintrag);
+    },
+    async zeiteintragLoeschen(id) {
+      const i = zeiteintraege.findIndex((z) => z.id === id);
+      if (i >= 0) zeiteintraege.splice(i, 1);
+    },
+    async zeiteintragEinreichen(id) {
+      const eintrag = zeiteintraege.find((z) => z.id === id);
+      if (eintrag) eintrag.status = "eingereicht";
+    },
+    async zeiteintragFreigeben(id) {
+      const eintrag = zeiteintraege.find((z) => z.id === id);
+      if (eintrag) {
+        eintrag.status = "freigegeben";
+        eintrag.freigegeben_am = new Date().toISOString();
+      }
+    },
+    async zeiteintragAblehnen(id) {
+      const eintrag = zeiteintraege.find((z) => z.id === id);
+      if (eintrag) eintrag.status = "abgelehnt";
+    },
+
+    async zuschlagsregeln() {
+      return zuschlagsregeln.slice();
+    },
+    async zuschlagsregelSpeichern(regel) {
+      const i = zuschlagsregeln.findIndex((r) => r.id === regel.id);
+      if (i >= 0) zuschlagsregeln[i] = regel;
+      else zuschlagsregeln.push(regel);
+    },
+    async zuschlagsregelLoeschen(id) {
+      const i = zuschlagsregeln.findIndex((r) => r.id === id);
+      if (i >= 0) zuschlagsregeln.splice(i, 1);
     },
   };
 }

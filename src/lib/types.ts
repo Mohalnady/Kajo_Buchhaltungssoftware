@@ -101,3 +101,48 @@ export interface Mandant {
   versteuerung: "ist" | "soll";
   kassen_anfangsbestand: number;
 }
+
+// Personal, siehe SPEC.md Abschnitt 5.7.
+
+export type Beschaeftigungsart = "minijob" | "teilzeit" | "vollzeit" | "aushilfe";
+
+export interface Mitarbeiter {
+  id: string;
+  name: string;
+  personalnr?: string;
+  rolle: string;
+  beschaeftigungsart: Beschaeftigungsart;
+  eintritt: string; // JJJJ-MM-TT
+  austritt?: string;
+  stundenlohn: number;
+  wochenstunden: number;
+  urlaubstage_jahr: number;
+  aktiv: boolean;
+}
+
+export type ZeiteintragArt = "arbeit" | "urlaub" | "krank" | "feiertag" | "frei";
+export type ZeiteintragStatus = "entwurf" | "eingereicht" | "freigegeben" | "abgelehnt";
+
+export interface Zeiteintrag {
+  id: string;
+  mitarbeiter_id: string;
+  datum: string; // JJJJ-MM-TT
+  von?: string; // "HH:MM"
+  bis?: string; // "HH:MM"
+  pause_min: number;
+  stunden: number; // berechneter Wert, siehe lib/stunden.ts
+  art: ZeiteintragArt;
+  notiz: string;
+  status: ZeiteintragStatus;
+  freigegeben_von?: string;
+  freigegeben_am?: string;
+}
+
+export interface Zuschlagsregel {
+  id: string;
+  art: "nacht" | "sonntag" | "feiertag";
+  von_uhrzeit?: string; // "HH:MM", nur bei art "nacht"
+  bis_uhrzeit?: string;
+  prozent: number;
+  aktiv: boolean;
+}

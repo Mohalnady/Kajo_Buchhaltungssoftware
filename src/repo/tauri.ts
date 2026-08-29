@@ -5,7 +5,7 @@
 import type Database from "@tauri-apps/plugin-sql";
 import { mkdir, readFile, remove, writeFile } from "@tauri-apps/plugin-fs";
 import { join } from "@tauri-apps/api/path";
-import type { Beleg, Buchung, Dokument, Importlauf, Konto, Kostenstelle } from "../lib/types.ts";
+import type { Beleg, Buchung, Dokument, Importlauf, Konto, Kostenstelle, Mitarbeiter, Zeiteintrag, Zuschlagsregel } from "../lib/types.ts";
 import type { Gutschein } from "../lib/gutschein.ts";
 import { offenerBetrag, statusNachEinloesung } from "../lib/gutschein.ts";
 import { round2 } from "../lib/numbers.ts";
@@ -362,6 +362,148 @@ export function erstelleTauriDatenquelle(db: Database, mandantId: string): Daten
     async dokumentInhalt(dokument) {
       const bytes = await readFile(dokument.pfad);
       return new Blob([bytes], { type: dokument.mime });
+    },
+
+    async mitarbeiterListe() {
+      const zeilen = await db.select<(Omit<Mitarbeiter, "aktiv"> & { aktiv: number })[]>(
+        "SELECT id, name, personalnr, rolle, beschaeftigungsart, eintritt, austritt, stundenlohn, wochenstunden, urlaubstage_jahr, aktiv FROM mitarbeiter ORDER BY name",
+      );
+      return zeilen.map((z) => ({ ...z, personalnr: z.personalnr ?? undefined, austritt: z.austritt ?? undefined, aktiv: z.aktiv === 1 }));
+    },
+
+    async mitarbeiterSpeichern(mitarbeiter) {
+      const vorhanden = await db.select<{ id: string }[]>("SELECT id FROM mitarbeiter WHERE id = $1", [mitarbeiter.id]);
+      const werte = [
+        mitarbeiter.name,
+        mitarbeiter.personalnr ?? null,
+        mitarbeiter.rolle,
+        mitarbeiter.beschaeftigungsart,
+        mitarbeiter.eintritt,
+        mitarbeiter.austritt ?? null,
+        mitarbeiter.stundenlohn,
+        mitarbeiter.wochenstunden,
+        mitarbeiter.urlaubstage_jahr,
+        mitarbeiter.aktiv ? 1 : 0,
+      ];
+      if (vorhanden.length) {
+        await db.execute(
+          `UPDATE mitarbeiter SET name=$2, personalnr=$3, rolle=$4, beschaeftigungsart=$5, eintritt=$6, austritt=$7,
+             stundenlohn=$8, wochenstunden=$9, urlaubstage_jahr=$10, aktiv=$11 WHERE id=$1`,
+          [mitarbeiter.id, ...werte],
+        );
+      } else {
+        await db.execute(
+          `INSERT INTO mitarbeiter (id, name, personalnr, rolle, beschaeftigungsart, eintritt, austritt, stundenlohn, wochenstunden, urlaubstage_jahr, aktiv)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+          [mitarbeiter.id, ...werte],
+        );
+      }
+    },
+
+    async mitarbeiterLoeschen(id): Promise<LoeschErgebnis> {
+      const bebucht = await db.select<{ anzahl: number }[]>("SELECT COUNT(*) as anzahl FROM zeiteintrag WHERE mitarbeiter_id = $1", [id]);
+      if ((bebucht[0]?.anzahl ?? 0) > 0) {
+        return { ok: false, grund: "Mitarbeiter hat noch Zeiteinträge." };
+      }
+      await db.execute("DELETE FROM mitarbeiter WHERE id = $1", [id]);
+      return { ok: true };
+    },
+
+    async zeiteintraege() {
+      const zeilen = await db.select<(Omit<Zeiteintrag, "von" | "bis" | "freigegeben_von" | "freigegeben_am"> & {
+        von: string | null;
+        bis: string | null;
+        freigegeben_von: string | null;
+        freigegeben_am: string | null;
+      })[]>(
+        `SELECT id, mitarbeiter_id, datum, von, bis, pause_min, stunden, art, notiz, status, freigegeben_von, freigegeben_am
+         FROM zeiteintrag ORDER BY datum DESC`,
+      );
+      return zeilen.map((z) => ({
+        ...z,
+        von: z.von ?? undefined,
+        bis: z.bis ?? undefined,
+        freigegeben_von: z.freigegeben_von ?? undefined,
+        freigegeben_am: z.freigegeben_am ?? undefined,
+      }));
+    },
+
+    async zeiteintragSpeichern(eintrag) {
+      const vorhanden = await db.select<{ id: string }[]>("SELECT id FROM zeiteintrag WHERE id = $1", [eintrag.id]);
+      const werte = [
+        eintrag.mitarbeiter_id,
+        eintrag.datum,
+        eintrag.von ?? null,
+        eintrag.bis ?? null,
+        eintrag.pause_min,
+        eintrag.stunden,
+        eintrag.art,
+        eintrag.notiz,
+        eintrag.status,
+      ];
+      if (vorhanden.length) {
+        await db.execute(
+          `UPDATE zeiteintrag SET mitarbeiter_id=$2, datum=$3, von=$4, bis=$5, pause_min=$6, stunden=$7, art=$8, notiz=$9, status=$10
+           WHERE id=$1`,
+          [eintrag.id, ...werte],
+        );
+      } else {
+        await db.execute(
+          `INSERT INTO zeiteintrag (id, mitarbeiter_id, datum, von, bis, pause_min, stunden, art, notiz, status)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+          [eintrag.id, ...werte],
+        );
+      }
+    },
+
+    async zeiteintragLoeschen(id) {
+      await db.execute("DELETE FROM zeiteintrag WHERE id = $1", [id]);
+    },
+
+    async zeiteintragEinreichen(id) {
+      await db.execute("UPDATE zeiteintrag SET status = 'eingereicht' WHERE id = $1", [id]);
+    },
+
+    async zeiteintragFreigeben(id) {
+      await db.execute("UPDATE zeiteintrag SET status = 'freigegeben', freigegeben_am = datetime('now') WHERE id = $1", [id]);
+    },
+
+    async zeiteintragAblehnen(id) {
+      await db.execute("UPDATE zeiteintrag SET status = 'abgelehnt' WHERE id = $1", [id]);
+    },
+
+    async zuschlagsregeln() {
+      const zeilen = await db.select<(Omit<Zuschlagsregel, "aktiv" | "von_uhrzeit" | "bis_uhrzeit"> & {
+        aktiv: number;
+        von_uhrzeit: string | null;
+        bis_uhrzeit: string | null;
+      })[]>("SELECT id, art, von_uhrzeit, bis_uhrzeit, prozent, aktiv FROM zuschlagsregel ORDER BY art");
+      return zeilen.map((z) => ({
+        ...z,
+        von_uhrzeit: z.von_uhrzeit ?? undefined,
+        bis_uhrzeit: z.bis_uhrzeit ?? undefined,
+        aktiv: z.aktiv === 1,
+      }));
+    },
+
+    async zuschlagsregelSpeichern(regel) {
+      const vorhanden = await db.select<{ id: string }[]>("SELECT id FROM zuschlagsregel WHERE id = $1", [regel.id]);
+      const werte = [regel.art, regel.von_uhrzeit ?? null, regel.bis_uhrzeit ?? null, regel.prozent, regel.aktiv ? 1 : 0];
+      if (vorhanden.length) {
+        await db.execute("UPDATE zuschlagsregel SET art=$2, von_uhrzeit=$3, bis_uhrzeit=$4, prozent=$5, aktiv=$6 WHERE id=$1", [
+          regel.id,
+          ...werte,
+        ]);
+      } else {
+        await db.execute("INSERT INTO zuschlagsregel (id, art, von_uhrzeit, bis_uhrzeit, prozent, aktiv) VALUES ($1,$2,$3,$4,$5,$6)", [
+          regel.id,
+          ...werte,
+        ]);
+      }
+    },
+
+    async zuschlagsregelLoeschen(id) {
+      await db.execute("DELETE FROM zuschlagsregel WHERE id = $1", [id]);
     },
   };
 }
