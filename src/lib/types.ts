@@ -37,6 +37,13 @@ export interface Buchung {
   storniert: boolean;
 }
 
+export interface Kostenstelle {
+  id: string;
+  name: string;
+  notiz: string;
+  aktiv: boolean;
+}
+
 export interface BetragSplit {
   brutto: number;
   netto: number;
