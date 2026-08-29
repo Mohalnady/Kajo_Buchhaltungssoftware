@@ -2,13 +2,16 @@
 // keine SQLite-Anbindung möglich). Änderungen bleiben nur für die laufende
 // Sitzung erhalten und gehen beim Neuladen der Seite verloren.
 
-import type { Buchung, Konto, Kostenstelle } from "../lib/types.ts";
+import type { Beleg, Buchung, Importlauf, Importregel, Konto, Kostenstelle } from "../lib/types.ts";
 import type { Gutschein } from "../lib/gutschein.ts";
 import { offenerBetrag, statusNachEinloesung } from "../lib/gutschein.ts";
 import { round2 } from "../lib/numbers.ts";
 import { skr03Startkonten } from "../lib/skr03.ts";
 import { uid } from "../lib/uid.ts";
 import type { Datenquelle, LoeschErgebnis } from "./typen.ts";
+
+// Blob-Inhalte der Vorschau-Belege leben nur im Arbeitsspeicher der Sitzung.
+const belegBlobs = new Map<string, Blob>();
 
 function anfangsGutscheine(): Gutschein[] {
   return [
@@ -35,6 +38,9 @@ export function erstelleVorschauDatenquelle(): Datenquelle {
   const kostenstellen: Kostenstelle[] = [];
   const buchungen: Buchung[] = anfangsBuchungen();
   const gutscheine: Gutschein[] = anfangsGutscheine();
+  const belege: Beleg[] = [];
+  const importregeln: Importregel[] = [];
+  const importlaeufe: Importlauf[] = [];
 
   return {
     modus: "vorschau",
@@ -136,6 +142,67 @@ export function erstelleVorschauDatenquelle(): Datenquelle {
     async buchungLoeschen(id) {
       const i = buchungen.findIndex((b) => b.id === id);
       if (i >= 0) buchungen.splice(i, 1);
+    },
+
+    async belegeVon(buchungId) {
+      return belege.filter((b) => b.buchung_id === buchungId);
+    },
+    async belegAnhaengen(neuerBeleg) {
+      const id = uid();
+      belegBlobs.set(id, new Blob([neuerBeleg.inhalt as BlobPart], { type: neuerBeleg.mime }));
+      belege.push({
+        id,
+        buchung_id: neuerBeleg.buchung_id,
+        dateiname: neuerBeleg.dateiname,
+        pfad: `vorschau:${id}`,
+        mime: neuerBeleg.mime,
+        groesse: neuerBeleg.inhalt.byteLength,
+        hinzugefuegt_am: new Date().toISOString(),
+      });
+    },
+    async belegLoeschen(id) {
+      const i = belege.findIndex((b) => b.id === id);
+      if (i >= 0) belege.splice(i, 1);
+      belegBlobs.delete(id);
+    },
+    async belegInhalt(beleg) {
+      return belegBlobs.get(beleg.id) ?? new Blob([]);
+    },
+
+    async importregeln() {
+      return importregeln.slice();
+    },
+    async importregelSpeichern(regel) {
+      const i = importregeln.findIndex((r) => r.id === regel.id);
+      if (i >= 0) importregeln[i] = regel;
+      else importregeln.push(regel);
+    },
+    async importregelLoeschen(id) {
+      const i = importregeln.findIndex((r) => r.id === id);
+      if (i >= 0) importregeln.splice(i, 1);
+    },
+
+    async importlaeufe() {
+      return importlaeufe.slice();
+    },
+    async buchungenUebernehmen(eingabe) {
+      const importlaufId = uid();
+      importlaeufe.push({
+        id: importlaufId,
+        datei: eingabe.datei,
+        format: eingabe.format,
+        zeilen: eingabe.zeilen,
+        uebernommen: eingabe.buchungen.length,
+        datum: new Date().toISOString(),
+      });
+      for (const b of eingabe.buchungen) {
+        buchungen.push({ ...b, import_id: importlaufId });
+      }
+    },
+    async importRueckgaengig(importlaufId) {
+      for (let i = buchungen.length - 1; i >= 0; i--) {
+        if (buchungen[i].import_id === importlaufId) buchungen.splice(i, 1);
+      }
     },
   };
 }

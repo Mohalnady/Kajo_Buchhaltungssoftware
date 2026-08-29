@@ -91,6 +91,8 @@ const de: Woerterbuch = {
   bestand: "Bestand",
   bewegung: "Bewegung",
   fehler_restbetrag: "Der Betrag übersteigt den Restbetrag des Gutscheins.",
+  belege_titel: "Belege",
+  belege_hinweis_typen: "PDF, Word, Excel, CSV, Markdown, PNG oder JPEG.",
 };
 
 const en: Woerterbuch = {
@@ -173,6 +175,8 @@ const en: Woerterbuch = {
   bestand: "Balance",
   bewegung: "Movement",
   fehler_restbetrag: "The amount exceeds the voucher's remaining balance.",
+  belege_titel: "Receipts",
+  belege_hinweis_typen: "PDF, Word, Excel, CSV, Markdown, PNG or JPEG.",
 };
 
 const ar: Woerterbuch = {
@@ -255,6 +259,8 @@ const ar: Woerterbuch = {
   bestand: "الرصيد",
   bewegung: "الحركة",
   fehler_restbetrag: "المبلغ يتجاوز الرصيد المتبقي من القسيمة.",
+  belege_titel: "المستندات",
+  belege_hinweis_typen: "PDF أو Word أو Excel أو CSV أو Markdown أو PNG أو JPEG.",
 };
 
 export const WOERTERBUECHER: Record<Sprache, Woerterbuch> = { de, en, ar };

@@ -3,11 +3,14 @@
 // src-tauri/migrations/mandant/0001_init.sql fürs Schema.
 
 import type Database from "@tauri-apps/plugin-sql";
-import type { Buchung, Konto, Kostenstelle } from "../lib/types.ts";
+import { mkdir, readFile, remove, writeFile } from "@tauri-apps/plugin-fs";
+import { join } from "@tauri-apps/api/path";
+import type { Beleg, Buchung, Importlauf, Konto, Kostenstelle } from "../lib/types.ts";
 import type { Gutschein } from "../lib/gutschein.ts";
 import { offenerBetrag, statusNachEinloesung } from "../lib/gutschein.ts";
 import { round2 } from "../lib/numbers.ts";
 import { uid } from "../lib/uid.ts";
+import { belegeOrdner } from "../db/pfade.ts";
 import type { Datenquelle, LoeschErgebnis, MandantEinstellungen } from "./typen.ts";
 
 interface KontoZeile {
@@ -43,7 +46,7 @@ interface BuchungZeile {
   storniert: number;
 }
 
-export function erstelleTauriDatenquelle(db: Database): Datenquelle {
+export function erstelleTauriDatenquelle(db: Database, mandantId: string): Datenquelle {
   return {
     modus: "tauri",
 
@@ -226,6 +229,98 @@ export function erstelleTauriDatenquelle(db: Database): Datenquelle {
       // Abschnitt 10, P1). Bis dahin: Buchungen lassen sich vor dem Abschluss
       // wie im Prototyp direkt entfernen, um Tippfehler korrigieren zu können.
       await db.execute("DELETE FROM buchung WHERE id = $1", [id]);
+    },
+
+    async belegeVon(buchungId) {
+      return db.select<Beleg[]>(
+        "SELECT id, buchung_id, dateiname, pfad, mime, groesse, hinzugefuegt_am FROM beleg WHERE buchung_id = $1 ORDER BY hinzugefuegt_am",
+        [buchungId],
+      );
+    },
+
+    async belegAnhaengen(neuerBeleg) {
+      const buchungZeilen = await db.select<{ datum: string }[]>(
+        "SELECT datum FROM buchung WHERE id = $1",
+        [neuerBeleg.buchung_id],
+      );
+      const jahr = Number((buchungZeilen[0]?.datum ?? new Date().toISOString()).slice(0, 4));
+      const ordner = await belegeOrdner(mandantId, jahr);
+      await mkdir(ordner, { recursive: true });
+      const dateiname = `${uid()}_${neuerBeleg.dateiname}`;
+      const pfad = await join(ordner, dateiname);
+      await writeFile(pfad, neuerBeleg.inhalt);
+      await db.execute(
+        "INSERT INTO beleg (id, buchung_id, dateiname, pfad, mime, groesse) VALUES ($1,$2,$3,$4,$5,$6)",
+        [uid(), neuerBeleg.buchung_id, neuerBeleg.dateiname, pfad, neuerBeleg.mime, neuerBeleg.inhalt.byteLength],
+      );
+    },
+
+    async belegLoeschen(id) {
+      const zeilen = await db.select<{ pfad: string }[]>("SELECT pfad FROM beleg WHERE id = $1", [id]);
+      await db.execute("DELETE FROM beleg WHERE id = $1", [id]);
+      if (zeilen[0]) {
+        try {
+          await remove(zeilen[0].pfad);
+        } catch {
+          // Datei bereits verschwunden — der Datenbankeintrag ist trotzdem weg.
+        }
+      }
+    },
+
+    async belegInhalt(beleg) {
+      const bytes = await readFile(beleg.pfad);
+      return new Blob([bytes], { type: beleg.mime });
+    },
+
+    async importregeln() {
+      const zeilen = await db.select<{ id: string; stichwoerter: string; konto: string; prioritaet: number; aktiv: number }[]>(
+        "SELECT id, stichwoerter, konto, prioritaet, aktiv FROM importregel WHERE aktiv = 1 ORDER BY prioritaet DESC",
+      );
+      return zeilen.map((z) => ({ ...z, aktiv: z.aktiv === 1 }));
+    },
+
+    async importregelSpeichern(regel) {
+      const vorhanden = await db.select<{ id: string }[]>("SELECT id FROM importregel WHERE id = $1", [regel.id]);
+      if (vorhanden.length) {
+        await db.execute(
+          "UPDATE importregel SET stichwoerter=$2, konto=$3, prioritaet=$4, aktiv=$5 WHERE id=$1",
+          [regel.id, regel.stichwoerter, regel.konto, regel.prioritaet, regel.aktiv ? 1 : 0],
+        );
+      } else {
+        await db.execute(
+          "INSERT INTO importregel (id, stichwoerter, konto, prioritaet, aktiv) VALUES ($1,$2,$3,$4,$5)",
+          [regel.id, regel.stichwoerter, regel.konto, regel.prioritaet, regel.aktiv ? 1 : 0],
+        );
+      }
+    },
+
+    async importregelLoeschen(id) {
+      await db.execute("DELETE FROM importregel WHERE id = $1", [id]);
+    },
+
+    async importlaeufe() {
+      return db.select<Importlauf[]>(
+        "SELECT id, datei, format, zeilen, uebernommen, datum FROM importlauf ORDER BY datum DESC",
+      );
+    },
+
+    async buchungenUebernehmen(eingabe) {
+      const importlaufId = uid();
+      await db.execute(
+        "INSERT INTO importlauf (id, datei, format, zeilen, uebernommen) VALUES ($1,$2,$3,$4,$5)",
+        [importlaufId, eingabe.datei, eingabe.format, eingabe.zeilen, eingabe.buchungen.length],
+      );
+      for (const b of eingabe.buchungen) {
+        await db.execute(
+          `INSERT INTO buchung (id, datum, belegnr, text, konto, gegenkonto, betrag_brutto, ust_satz, quelle, import_id, storniert)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,0)`,
+          [uid(), b.datum, b.belegnr ?? "", b.text, b.konto, b.gegenkonto, b.betrag_brutto, b.ust_satz, b.quelle, importlaufId],
+        );
+      }
+    },
+
+    async importRueckgaengig(importlaufId) {
+      await db.execute("DELETE FROM buchung WHERE import_id = $1", [importlaufId]);
     },
   };
 }

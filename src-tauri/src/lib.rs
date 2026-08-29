@@ -30,6 +30,7 @@ pub fn run() {
         .add_migrations("sqlite:kontor.db", zentrale_migrationen())
         .build(),
     )
+    .plugin(tauri_plugin_fs::init())
     .invoke_handler(tauri::generate_handler![mandant_schema_sql])
     .setup(|app| {
       if cfg!(debug_assertions) {

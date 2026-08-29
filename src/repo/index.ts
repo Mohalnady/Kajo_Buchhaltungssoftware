@@ -29,5 +29,5 @@ export async function erstelleDatenquelle(): Promise<Datenquelle> {
     await mandantAnlegen(mandantId, "Meine Firma");
   }
   const db = await mandantDbOeffnen(mandantId);
-  return erstelleTauriDatenquelle(db);
+  return erstelleTauriDatenquelle(db, mandantId);
 }

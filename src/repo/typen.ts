@@ -6,7 +6,7 @@
 // Arbeitsspeicher. Die Oberfläche in main.ts kennt nur dieses Interface und
 // muss zwischen beidem nicht unterscheiden.
 
-import type { Buchung, Konto, Kostenstelle } from "../lib/types.ts";
+import type { Beleg, Buchung, ImportFormat, Importlauf, Importregel, Konto, Kostenstelle } from "../lib/types.ts";
 import type { Gutschein } from "../lib/gutschein.ts";
 
 export interface LoeschErgebnis {
@@ -33,6 +33,20 @@ export interface GutscheinEinloesung {
   erloesKonto: string; // Erlöskonto mit dem Steuersatz der gekauften Ware
 }
 
+export interface NeuerBeleg {
+  buchung_id: string;
+  dateiname: string;
+  mime: string;
+  inhalt: Uint8Array;
+}
+
+export interface ImportUebernahme {
+  buchungen: Buchung[];
+  datei: string;
+  format: ImportFormat;
+  zeilen: number;
+}
+
 export interface Datenquelle {
   modus: "tauri" | "vorschau";
 
@@ -52,4 +66,17 @@ export interface Datenquelle {
   buchungen(): Promise<Buchung[]>;
   buchungSpeichern(buchung: Buchung): Promise<void>;
   buchungLoeschen(id: string): Promise<void>;
+
+  belegeVon(buchungId: string): Promise<Beleg[]>;
+  belegAnhaengen(neuerBeleg: NeuerBeleg): Promise<void>;
+  belegLoeschen(id: string): Promise<void>;
+  belegInhalt(beleg: Beleg): Promise<Blob>;
+
+  importregeln(): Promise<Importregel[]>;
+  importregelSpeichern(regel: Importregel): Promise<void>;
+  importregelLoeschen(id: string): Promise<void>;
+
+  importlaeufe(): Promise<Importlauf[]>;
+  buchungenUebernehmen(eingabe: ImportUebernahme): Promise<void>;
+  importRueckgaengig(importlaufId: string): Promise<void>;
 }

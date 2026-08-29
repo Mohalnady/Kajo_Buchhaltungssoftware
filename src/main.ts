@@ -6,7 +6,7 @@ import { offenerBetrag, offeneGutscheinSumme, type Gutschein } from "./lib/gutsc
 import { naechsteBelegnummer } from "./lib/belegnummer.ts";
 import { formatEur, parseNumber } from "./lib/numbers.ts";
 import { uid } from "./lib/uid.ts";
-import type { Buchung, Konto, Kostenstelle } from "./lib/types.ts";
+import type { Beleg, Buchung, Konto, Kostenstelle } from "./lib/types.ts";
 import { erstelleDatenquelle } from "./repo/index.ts";
 import type { Datenquelle } from "./repo/typen.ts";
 
@@ -38,7 +38,34 @@ const ICONS: Record<string, string> = {
   x: "M18 6 6 18M6 6l12 12",
   edit: "M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z",
   trash: "M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6",
+  clip: "M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48",
 };
+
+const ERLAUBTE_BELEG_TYPEN = ".pdf,.doc,.docx,.csv,.xls,.xlsx,.png,.jpg,.jpeg,.md,.markdown";
+
+function mimeVonDateiname(name: string): string {
+  const endung = name.split(".").pop()?.toLowerCase() ?? "";
+  const zuordnung: Record<string, string> = {
+    pdf: "application/pdf",
+    doc: "application/msword",
+    docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    csv: "text/csv",
+    xls: "application/vnd.ms-excel",
+    xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    png: "image/png",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    md: "text/markdown",
+    markdown: "text/markdown",
+  };
+  return zuordnung[endung] ?? "application/octet-stream";
+}
+
+function formatGroesse(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 function icon(name: string): string {
   return `<svg class="i" viewBox="0 0 24 24"><path d="${ICONS[name] ?? ""}"/></svg>`;
@@ -579,6 +606,7 @@ function buchungsTabelle(liste: Buchung[]): string {
           <td class="num ${ton}">${formatEur(b.betrag_brutto)}</td>
           <td class="num">${b.ust_satz} %</td>
           <td style="text-align:end;white-space:nowrap">
+            <button class="btn ghost sm" data-aktion="buchung-belege" data-id="${escapeHtml(b.id)}">${icon("clip")}</button>
             <button class="btn ghost sm" data-aktion="buchung-bearbeiten" data-id="${escapeHtml(b.id)}">${icon("edit")}</button>
             <button class="btn danger sm" data-aktion="buchung-loeschen" data-id="${escapeHtml(b.id)}">${icon("trash")}</button>
           </td>
@@ -699,6 +727,78 @@ async function buchungLoeschen(id: string): Promise<void> {
   await zustand.repo.buchungLoeschen(id);
   await datenNeuLaden();
   render();
+  zeigeMeldung(t(zustand.sprache, "geloescht"));
+}
+
+// ---------- Belege ----------
+
+let aktuelleBelege: Beleg[] = [];
+
+function belegeListeHtml(): string {
+  if (!aktuelleBelege.length) return `<div class="empty">${t(zustand.sprache, "keine")}</div>`;
+  return aktuelleBelege
+    .map(
+      (beleg) => `<div class="listrow">
+        <span>${icon("doc")}</span>
+        <span style="margin-inline-start:8px">
+          <button class="btn ghost sm" data-aktion="beleg-oeffnen" data-id="${escapeHtml(beleg.id)}" style="padding:2px 0;box-shadow:none;background:none;color:var(--ink);font-weight:600">${escapeHtml(beleg.dateiname)}</button>
+          <br><span class="hint">${formatGroesse(beleg.groesse)} · ${beleg.hinzugefuegt_am.slice(0, 10).split("-").reverse().join(".")}</span>
+        </span>
+        <span style="margin-inline-start:auto"><button class="btn danger sm" data-aktion="beleg-loeschen" data-id="${escapeHtml(beleg.id)}">${icon("trash")}</button></span>
+      </div>`,
+    )
+    .join("");
+}
+
+async function belegeFormular(buchungId: string): Promise<void> {
+  aktuelleBelege = await zustand.repo.belegeVon(buchungId);
+  const buchung = zustand.buchungen.find((b) => b.id === buchungId);
+  openModal(`
+    <div class="mhead"><h2 style="margin:0">${t(zustand.sprache, "belege_titel")}${buchung ? ` — ${escapeHtml(buchung.text)}` : ""}</h2>
+      <button class="x" data-modal-close>${icon("x")}</button></div>
+    <input type="file" multiple accept="${ERLAUBTE_BELEG_TYPEN}" data-aktion="beleg-datei-gewaehlt" data-buchung-id="${escapeHtml(buchungId)}">
+    <div class="hint" style="margin-top:6px">${t(zustand.sprache, "belege_hinweis_typen")}</div>
+    <div id="beleg-liste" style="margin-top:16px">${belegeListeHtml()}</div>
+    <div class="row" style="margin-top:20px;justify-content:flex-end">
+      <button class="btn ghost fit" data-modal-close>${t(zustand.sprache, "cancel")}</button>
+    </div>
+  `);
+}
+
+async function belegeAktualisierenImModal(buchungId: string): Promise<void> {
+  aktuelleBelege = await zustand.repo.belegeVon(buchungId);
+  const liste = document.querySelector<HTMLDivElement>("#beleg-liste");
+  if (liste) liste.innerHTML = belegeListeHtml();
+}
+
+async function belegeHochladen(buchungId: string, dateien: FileList): Promise<void> {
+  for (const datei of Array.from(dateien)) {
+    const inhalt = new Uint8Array(await datei.arrayBuffer());
+    await zustand.repo.belegAnhaengen({
+      buchung_id: buchungId,
+      dateiname: datei.name,
+      mime: datei.type || mimeVonDateiname(datei.name),
+      inhalt,
+    });
+  }
+  await belegeAktualisierenImModal(buchungId);
+  zeigeMeldung(t(zustand.sprache, "gespeichert"));
+}
+
+async function belegOeffnen(id: string): Promise<void> {
+  const beleg = aktuelleBelege.find((b) => b.id === id);
+  if (!beleg) return;
+  const blob = await zustand.repo.belegInhalt(beleg);
+  const url = URL.createObjectURL(blob);
+  window.open(url, "_blank");
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+async function belegLoeschenAktion(id: string): Promise<void> {
+  if (!confirm(t(zustand.sprache, "loeschen_bestaetigen"))) return;
+  const beleg = aktuelleBelege.find((b) => b.id === id);
+  await zustand.repo.belegLoeschen(id);
+  if (beleg) await belegeAktualisierenImModal(beleg.buchung_id);
   zeigeMeldung(t(zustand.sprache, "geloescht"));
 }
 
@@ -855,6 +955,15 @@ function einrichten(): void {
       case "gutschein-einloesen-speichern":
         if (id) void gutscheinEinloesenSpeichern(id);
         break;
+      case "buchung-belege":
+        if (id) void belegeFormular(id);
+        break;
+      case "beleg-oeffnen":
+        if (id) void belegOeffnen(id);
+        break;
+      case "beleg-loeschen":
+        if (id) void belegLoeschenAktion(id);
+        break;
     }
   });
 
@@ -862,6 +971,12 @@ function einrichten(): void {
     const ziel = ereignis.target as HTMLElement;
     if (ziel.closest("[data-aktion='buchung-konto-geaendert']")) {
       buchungKontoGeaendert();
+    }
+    const belegDatei = ziel.closest<HTMLInputElement>("[data-aktion='beleg-datei-gewaehlt']");
+    if (belegDatei && belegDatei.files?.length) {
+      const buchungId = belegDatei.dataset.buchungId ?? "";
+      void belegeHochladen(buchungId, belegDatei.files);
+      belegDatei.value = "";
     }
   });
 

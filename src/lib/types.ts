@@ -44,6 +44,35 @@ export interface Kostenstelle {
   aktiv: boolean;
 }
 
+export interface Beleg {
+  id: string;
+  buchung_id: string;
+  dateiname: string;
+  pfad: string; // Tauri: realer Dateipfad; Vorschau: interner Objekt-URL-Schlüssel
+  mime: string;
+  groesse: number;
+  hinzugefuegt_am: string;
+}
+
+export type ImportFormat = "csv" | "tsv" | "json" | "markdown" | "excel";
+
+export interface Importlauf {
+  id: string;
+  datei: string;
+  format: ImportFormat;
+  zeilen: number;
+  uebernommen: number;
+  datum: string;
+}
+
+export interface Importregel {
+  id: string;
+  stichwoerter: string; // kommagetrennt
+  konto: string;
+  prioritaet: number;
+  aktiv: boolean;
+}
+
 export interface BetragSplit {
   brutto: number;
   netto: number;
