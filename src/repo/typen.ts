@@ -6,7 +6,7 @@
 // Arbeitsspeicher. Die Oberfläche in main.ts kennt nur dieses Interface und
 // muss zwischen beidem nicht unterscheiden.
 
-import type { Beleg, Buchung, ImportFormat, Importlauf, Importregel, Konto, Kostenstelle } from "../lib/types.ts";
+import type { Beleg, Buchung, Dokument, DokumentTyp, ImportFormat, Importlauf, Importregel, Konto, Kostenstelle } from "../lib/types.ts";
 import type { Gutschein } from "../lib/gutschein.ts";
 
 export interface LoeschErgebnis {
@@ -49,6 +49,14 @@ export interface ImportUebernahme {
   zeilen: number;
 }
 
+export interface NeuesDokument {
+  typ: DokumentTyp;
+  datum: string;
+  dateiname: string;
+  mime: string;
+  inhalt: Uint8Array;
+}
+
 export interface Datenquelle {
   modus: "tauri" | "vorschau";
 
@@ -81,4 +89,9 @@ export interface Datenquelle {
   importlaeufe(): Promise<Importlauf[]>;
   buchungenUebernehmen(eingabe: ImportUebernahme): Promise<void>;
   importRueckgaengig(importlaufId: string): Promise<void>;
+
+  dokumente(): Promise<Dokument[]>;
+  dokumentHinzufuegen(neuesDokument: NeuesDokument): Promise<void>;
+  dokumentLoeschen(id: string): Promise<void>;
+  dokumentInhalt(dokument: Dokument): Promise<Blob>;
 }

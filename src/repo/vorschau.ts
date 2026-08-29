@@ -2,7 +2,7 @@
 // keine SQLite-Anbindung möglich). Änderungen bleiben nur für die laufende
 // Sitzung erhalten und gehen beim Neuladen der Seite verloren.
 
-import type { Beleg, Buchung, Importlauf, Importregel, Konto, Kostenstelle } from "../lib/types.ts";
+import type { Beleg, Buchung, Dokument, Importlauf, Importregel, Konto, Kostenstelle } from "../lib/types.ts";
 import type { Gutschein } from "../lib/gutschein.ts";
 import { offenerBetrag, statusNachEinloesung } from "../lib/gutschein.ts";
 import { round2 } from "../lib/numbers.ts";
@@ -12,6 +12,7 @@ import type { Datenquelle, LoeschErgebnis } from "./typen.ts";
 
 // Blob-Inhalte der Vorschau-Belege leben nur im Arbeitsspeicher der Sitzung.
 const belegBlobs = new Map<string, Blob>();
+const dokumentBlobs = new Map<string, Blob>();
 
 function anfangsGutscheine(): Gutschein[] {
   return [
@@ -41,6 +42,7 @@ export function erstelleVorschauDatenquelle(): Datenquelle {
   const belege: Beleg[] = [];
   const importregeln: Importregel[] = [];
   const importlaeufe: Importlauf[] = [];
+  const dokumente: Dokument[] = [];
 
   return {
     modus: "vorschau",
@@ -203,6 +205,32 @@ export function erstelleVorschauDatenquelle(): Datenquelle {
       for (let i = buchungen.length - 1; i >= 0; i--) {
         if (buchungen[i].import_id === importlaufId) buchungen.splice(i, 1);
       }
+    },
+
+    async dokumente() {
+      return dokumente.slice();
+    },
+    async dokumentHinzufuegen(neuesDokument) {
+      const id = uid();
+      dokumentBlobs.set(id, new Blob([neuesDokument.inhalt as BlobPart], { type: neuesDokument.mime }));
+      dokumente.push({
+        id,
+        typ: neuesDokument.typ,
+        datum: neuesDokument.datum,
+        dateiname: neuesDokument.dateiname,
+        pfad: `vorschau:${id}`,
+        mime: neuesDokument.mime,
+        groesse: neuesDokument.inhalt.byteLength,
+        hinzugefuegt_am: new Date().toISOString(),
+      });
+    },
+    async dokumentLoeschen(id) {
+      const i = dokumente.findIndex((d) => d.id === id);
+      if (i >= 0) dokumente.splice(i, 1);
+      dokumentBlobs.delete(id);
+    },
+    async dokumentInhalt(dokument) {
+      return dokumentBlobs.get(dokument.id) ?? new Blob([]);
     },
   };
 }

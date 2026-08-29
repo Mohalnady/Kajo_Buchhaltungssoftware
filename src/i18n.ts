@@ -175,6 +175,16 @@ const de: Woerterbuch = {
   diag_kostenverteilung: "Kostenverteilung",
   diag_vj_aktuell: "Laufendes Jahr",
   diag_vj_vorjahr: "Vorjahr",
+  belegablage: "Belegablage",
+  belegablage_hinweis_typen: "PDF, Word, Excel (auch .xlsm), CSV, JSON, Markdown, PNG oder JPEG.",
+  dok_typ: "Art der Unterlage",
+  dok_typ_kassenbericht: "Kassenbericht",
+  dok_typ_rechnung: "Rechnung",
+  dok_typ_beleg: "Beleg",
+  dok_typ_sonstiges: "Sonstiges",
+  dokument_hochladen: "Unterlagen hochladen",
+  monatspaket_herunterladen: "Monatspaket herunterladen",
+  monatspaket_leer: "Keine Unterlagen und Buchungen für diesen Monat.",
 };
 
 const en: Woerterbuch = {
@@ -341,6 +351,16 @@ const en: Woerterbuch = {
   diag_kostenverteilung: "Cost breakdown",
   diag_vj_aktuell: "Current year",
   diag_vj_vorjahr: "Previous year",
+  belegablage: "Document archive",
+  belegablage_hinweis_typen: "PDF, Word, Excel (incl. .xlsm), CSV, JSON, Markdown, PNG or JPEG.",
+  dok_typ: "Document type",
+  dok_typ_kassenbericht: "Cash report",
+  dok_typ_rechnung: "Invoice",
+  dok_typ_beleg: "Receipt",
+  dok_typ_sonstiges: "Other",
+  dokument_hochladen: "Upload documents",
+  monatspaket_herunterladen: "Download monthly package",
+  monatspaket_leer: "No documents or entries for this month.",
 };
 
 const ar: Woerterbuch = {
@@ -507,6 +527,16 @@ const ar: Woerterbuch = {
   diag_kostenverteilung: "توزيع التكاليف",
   diag_vj_aktuell: "السنة الحالية",
   diag_vj_vorjahr: "السنة السابقة",
+  belegablage: "أرشيف المستندات",
+  belegablage_hinweis_typen: "PDF أو Word أو Excel (وأيضًا .xlsm) أو CSV أو JSON أو Markdown أو PNG أو JPEG.",
+  dok_typ: "نوع المستند",
+  dok_typ_kassenbericht: "تقرير الصندوق",
+  dok_typ_rechnung: "فاتورة",
+  dok_typ_beleg: "إيصال",
+  dok_typ_sonstiges: "أخرى",
+  dokument_hochladen: "رفع المستندات",
+  monatspaket_herunterladen: "تنزيل حزمة الشهر",
+  monatspaket_leer: "لا توجد مستندات أو قيود لهذا الشهر.",
 };
 
 export const WOERTERBUECHER: Record<Sprache, Woerterbuch> = { de, en, ar };

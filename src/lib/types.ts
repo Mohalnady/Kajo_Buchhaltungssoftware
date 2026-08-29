@@ -54,6 +54,22 @@ export interface Beleg {
   hinzugefuegt_am: string;
 }
 
+// Unabhängig von einzelnen Buchungen: Kassenberichte, Rechnungen und sonstige
+// Unterlagen, laufend abgelegt und später als Monatspaket für den
+// Steuerberater gebündelt. Siehe SPEC.md Abschnitt 7 "Monatspaket".
+export type DokumentTyp = "kassenbericht" | "rechnung" | "beleg" | "sonstiges";
+
+export interface Dokument {
+  id: string;
+  typ: DokumentTyp;
+  datum: string; // JJJJ-MM-TT, der Tag, zu dem die Unterlage gehört (nicht der Uploadzeitpunkt)
+  dateiname: string;
+  pfad: string; // Tauri: realer Dateipfad; Vorschau: interner Objekt-URL-Schlüssel
+  mime: string;
+  groesse: number;
+  hinzugefuegt_am: string;
+}
+
 export type ImportFormat = "csv" | "tsv" | "json" | "markdown" | "excel";
 
 export interface Importlauf {

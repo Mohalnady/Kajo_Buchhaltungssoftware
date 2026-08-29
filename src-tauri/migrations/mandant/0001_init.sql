@@ -106,6 +106,23 @@ CREATE TABLE beleg (
 );
 CREATE INDEX idx_beleg_buchung ON beleg (buchung_id);
 
+-- Unabhängig von einzelnen Buchungen: Kassenberichte, Rechnungen und sonstige
+-- Unterlagen, die laufend (täglich/wöchentlich) abgelegt und später als
+-- Monatspaket für den Steuerberater gebündelt werden (siehe SPEC.md Abschnitt 7,
+-- "Monatspaket").
+CREATE TABLE dokument (
+  id               TEXT PRIMARY KEY,
+  typ              TEXT NOT NULL DEFAULT 'sonstiges'
+                     CHECK (typ IN ('kassenbericht', 'rechnung', 'beleg', 'sonstiges')),
+  datum            TEXT NOT NULL,
+  dateiname        TEXT NOT NULL,
+  pfad             TEXT NOT NULL,
+  mime             TEXT,
+  groesse          INTEGER,
+  hinzugefuegt_am  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_dokument_datum ON dokument (datum);
+
 CREATE TABLE dauerbuchung (
   id              TEXT PRIMARY KEY,
   name            TEXT NOT NULL,

@@ -6,7 +6,7 @@ import { offenerBetrag, offeneGutscheinSumme, type Gutschein } from "./lib/gutsc
 import { naechsteBelegnummer } from "./lib/belegnummer.ts";
 import { formatEur, parseNumber, round2 } from "./lib/numbers.ts";
 import { uid } from "./lib/uid.ts";
-import type { Beleg, Buchung, Importlauf, Importregel, Konto, Kostenstelle } from "./lib/types.ts";
+import type { Beleg, Buchung, Dokument, DokumentTyp, Importlauf, Importregel, Konto, Kostenstelle } from "./lib/types.ts";
 import { erstelleDatenquelle } from "./repo/index.ts";
 import type { Datenquelle } from "./repo/typen.ts";
 import { formatVonDateiname, inhaltEinlesen } from "./lib/dateiimport.ts";
@@ -19,6 +19,8 @@ import { euerBericht, type EuerZeile } from "./lib/euer.ts";
 import { ustVoranmeldung } from "./lib/ustva.ts";
 import { kontenblatt, summenUndSalden } from "./lib/berichte.ts";
 import { monatsReihe } from "./lib/diagramme.ts";
+import { buchungenDesMonats, paketEintraege } from "./lib/monatspaket.ts";
+import { zipSync, type Zippable } from "fflate";
 
 // P1-Grundgerüst: Navigation und Design aus dem Prototyp (referenz/prototyp.html),
 // aber als echte TypeScript-Struktur statt einer HTML-Datei. Buchungen,
@@ -51,7 +53,7 @@ const ICONS: Record<string, string> = {
   clip: "M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48",
 };
 
-const ERLAUBTE_BELEG_TYPEN = ".pdf,.doc,.docx,.csv,.xls,.xlsx,.png,.jpg,.jpeg,.md,.markdown";
+const ERLAUBTE_DATEI_TYPEN = ".pdf,.doc,.docx,.csv,.xls,.xlsx,.xlsm,.json,.png,.jpg,.jpeg,.md,.markdown";
 
 function mimeVonDateiname(name: string): string {
   const endung = name.split(".").pop()?.toLowerCase() ?? "";
@@ -62,6 +64,8 @@ function mimeVonDateiname(name: string): string {
     csv: "text/csv",
     xls: "application/vnd.ms-excel",
     xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    xlsm: "application/vnd.ms-excel.sheet.macroEnabled.12",
+    json: "application/json",
     png: "image/png",
     jpg: "image/jpeg",
     jpeg: "image/jpeg",
@@ -103,6 +107,7 @@ const NAV: NavEintrag[] = [
   { typ: "ziel", key: "konten", label: "konten", icon: "list" },
   { typ: "ziel", key: "kostenstellen", label: "ks", icon: "tagg" },
   { typ: "ziel", key: "datenimport", label: "imp", icon: "imp" },
+  { typ: "ziel", key: "belegablage", label: "belegablage", icon: "clip" },
   { typ: "ziel", key: "mandanten", label: "mand", icon: "build", phase: "P5" },
   { typ: "ziel", key: "einstellungen", label: "einst", icon: "gear" },
   { typ: "ziel", key: "sicherung", label: "sich", icon: "shield", phase: "P5" },
@@ -124,12 +129,13 @@ interface Zustand {
   kassenKonto: "1000" | "1210";
   importregeln: Importregel[];
   importlaeufe: Importlauf[];
+  dokumente: Dokument[];
 }
 
 let zustand: Zustand;
 
 async function datenNeuLaden(): Promise<void> {
-  const [konten, kostenstellen, buchungen, einstellungen, gutscheine, importregeln, importlaeufe] = await Promise.all([
+  const [konten, kostenstellen, buchungen, einstellungen, gutscheine, importregeln, importlaeufe, dokumente] = await Promise.all([
     zustand.repo.konten(),
     zustand.repo.kostenstellen(),
     zustand.repo.buchungen(),
@@ -137,6 +143,7 @@ async function datenNeuLaden(): Promise<void> {
     zustand.repo.gutscheine(),
     zustand.repo.importregeln(),
     zustand.repo.importlaeufe(),
+    zustand.repo.dokumente(),
   ]);
   zustand.konten = konten;
   zustand.kostenstellen = kostenstellen;
@@ -149,6 +156,7 @@ async function datenNeuLaden(): Promise<void> {
   zustand.gutscheinSumme = offeneGutscheinSumme(gutscheine);
   zustand.importregeln = importregeln;
   zustand.importlaeufe = importlaeufe;
+  zustand.dokumente = dokumente;
 }
 
 function kontoVon(nr: string): Konto | undefined {
@@ -778,7 +786,7 @@ async function belegeFormular(buchungId: string): Promise<void> {
   openModal(`
     <div class="mhead"><h2 style="margin:0">${t(zustand.sprache, "belege_titel")}${buchung ? ` — ${escapeHtml(buchung.text)}` : ""}</h2>
       <button class="x" data-modal-close>${icon("x")}</button></div>
-    <input type="file" multiple accept="${ERLAUBTE_BELEG_TYPEN}" data-aktion="beleg-datei-gewaehlt" data-buchung-id="${escapeHtml(buchungId)}">
+    <input type="file" multiple accept="${ERLAUBTE_DATEI_TYPEN}" data-aktion="beleg-datei-gewaehlt" data-buchung-id="${escapeHtml(buchungId)}">
     <div class="hint" style="margin-top:6px">${t(zustand.sprache, "belege_hinweis_typen")}</div>
     <div id="beleg-liste" style="margin-top:16px">${belegeListeHtml()}</div>
     <div class="row" style="margin-top:20px;justify-content:flex-end">
@@ -1657,6 +1665,125 @@ function renderDiagramme(): string {
   );
 }
 
+// ---------- Belegablage (Kassenbericht, Rechnungen, Belege für den Steuerberater) ----------
+
+let belegablageMonat = "";
+
+const DOKUMENT_TYP_LABEL: Record<DokumentTyp, string> = {
+  kassenbericht: "dok_typ_kassenbericht",
+  rechnung: "dok_typ_rechnung",
+  beleg: "dok_typ_beleg",
+  sonstiges: "dok_typ_sonstiges",
+};
+
+function dokumentTypOptionen(ausgewaehlt: DokumentTyp): string {
+  return (Object.keys(DOKUMENT_TYP_LABEL) as DokumentTyp[])
+    .map((typ) => `<option value="${typ}" ${ausgewaehlt === typ ? "selected" : ""}>${t(zustand.sprache, DOKUMENT_TYP_LABEL[typ])}</option>`)
+    .join("");
+}
+
+function belegablageListeHtml(): string {
+  const zeilen = zustand.dokumente.filter((d) => d.datum.startsWith(belegablageMonat));
+  if (!zeilen.length) return `<div class="empty">${t(zustand.sprache, "keine")}</div>`;
+  return `<div class="tw"><table><thead><tr>
+      <th>${t(zustand.sprache, "date")}</th><th>${t(zustand.sprache, "dok_typ")}</th><th>${t(zustand.sprache, "name")}</th><th></th>
+    </tr></thead><tbody>
+      ${zeilen
+        .map(
+          (d) => `<tr>
+            <td>${d.datum.split("-").reverse().join(".")}</td>
+            <td>${t(zustand.sprache, DOKUMENT_TYP_LABEL[d.typ])}</td>
+            <td>
+              <button class="btn ghost sm" data-aktion="dokument-oeffnen" data-id="${escapeHtml(d.id)}" style="padding:2px 0;box-shadow:none;background:none;color:var(--ink);font-weight:600">${escapeHtml(d.dateiname)}</button>
+              <br><span class="hint">${formatGroesse(d.groesse)}</span>
+            </td>
+            <td style="text-align:end"><button class="btn danger sm" data-aktion="dokument-loeschen" data-id="${escapeHtml(d.id)}">${icon("trash")}</button></td>
+          </tr>`,
+        )
+        .join("")}
+    </tbody></table></div>`;
+}
+
+function renderBelegablage(): string {
+  if (!belegablageMonat) belegablageMonat = heutigerMonat();
+  return (
+    topbarTitel(t(zustand.sprache, "belegablage")) +
+    `<div class="card">
+      <h2 style="margin-top:0">${t(zustand.sprache, "dokument_hochladen")}</h2>
+      <div class="row" style="align-items:flex-end;flex-wrap:wrap">
+        <div><label class="f">${t(zustand.sprache, "date")}</label><input type="date" id="dok-datum" value="${new Date().toISOString().slice(0, 10)}"></div>
+        <div><label class="f">${t(zustand.sprache, "dok_typ")}</label><select id="dok-typ">${dokumentTypOptionen("sonstiges")}</select></div>
+      </div>
+      <div style="margin-top:12px">
+        <input type="file" multiple accept="${ERLAUBTE_DATEI_TYPEN}" data-aktion="dokument-datei-gewaehlt">
+        <div class="hint" style="margin-top:6px">${t(zustand.sprache, "belegablage_hinweis_typen")}</div>
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <div class="row" style="justify-content:space-between;align-items:flex-end;flex-wrap:wrap">
+        <div><label class="f">${t(zustand.sprache, "bwa_monat")}</label><input type="month" data-aktion="belegablage-monat" value="${belegablageMonat}"></div>
+        <button class="btn fit" data-aktion="monatspaket-herunterladen">${icon("doc")}${t(zustand.sprache, "monatspaket_herunterladen")}</button>
+      </div>
+      <div style="margin-top:16px">${belegablageListeHtml()}</div>
+    </div>`
+  );
+}
+
+async function dokumenteHochladen(dateien: FileList): Promise<void> {
+  const datum = document.querySelector<HTMLInputElement>("#dok-datum")?.value || new Date().toISOString().slice(0, 10);
+  const typ = (document.querySelector<HTMLSelectElement>("#dok-typ")?.value as DokumentTyp) ?? "sonstiges";
+  for (const datei of Array.from(dateien)) {
+    const inhalt = new Uint8Array(await datei.arrayBuffer());
+    await zustand.repo.dokumentHinzufuegen({
+      typ,
+      datum,
+      dateiname: datei.name,
+      mime: datei.type || mimeVonDateiname(datei.name),
+      inhalt,
+    });
+  }
+  await datenNeuLaden();
+  render();
+  zeigeMeldung(t(zustand.sprache, "gespeichert"));
+}
+
+async function dokumentOeffnen(id: string): Promise<void> {
+  const dokument = zustand.dokumente.find((d) => d.id === id);
+  if (!dokument) return;
+  const blob = await zustand.repo.dokumentInhalt(dokument);
+  const url = URL.createObjectURL(blob);
+  window.open(url, "_blank");
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+async function dokumentLoeschenAktion(id: string): Promise<void> {
+  if (!confirm(t(zustand.sprache, "loeschen_bestaetigen"))) return;
+  await zustand.repo.dokumentLoeschen(id);
+  await datenNeuLaden();
+  render();
+  zeigeMeldung(t(zustand.sprache, "geloescht"));
+}
+
+async function monatspaketHerunterladen(): Promise<void> {
+  const eintraege = paketEintraege(zustand.dokumente, belegablageMonat);
+  const buchungenMonat = buchungenDesMonats(zustand.buchungen, belegablageMonat);
+  if (!eintraege.length && !buchungenMonat.length) {
+    zeigeMeldung(t(zustand.sprache, "monatspaket_leer"));
+    return;
+  }
+  const dateien: Zippable = {};
+  for (const eintrag of eintraege) {
+    const blob = await zustand.repo.dokumentInhalt(eintrag.dokument);
+    dateien[eintrag.zipPfad] = new Uint8Array(await blob.arrayBuffer());
+  }
+  if (buchungenMonat.length) {
+    dateien[`Buchungen_${belegablageMonat}.csv`] = new TextEncoder().encode(buchungenZuCsv(buchungenMonat));
+  }
+  const zip = zipSync(dateien);
+  ladeDateiHerunter(zip, `Monatspaket_${belegablageMonat}.zip`, "application/zip");
+  zeigeMeldung(t(zustand.sprache, "gespeichert"));
+}
+
 // ---------- Platzhalter für kommende Phasen ----------
 
 function renderPlatzhalter(): string {
@@ -1696,6 +1823,8 @@ function renderInhalt(): string {
       return renderBerichte();
     case "diagramme":
       return renderDiagramme();
+    case "belegablage":
+      return renderBelegablage();
     default:
       return renderPlatzhalter();
   }
@@ -1883,6 +2012,15 @@ function einrichten(): void {
         berichteUnterAnsicht = (aktionBtn.dataset.unteransicht as typeof berichteUnterAnsicht) ?? "journal";
         render();
         break;
+      case "dokument-oeffnen":
+        if (id) void dokumentOeffnen(id);
+        break;
+      case "dokument-loeschen":
+        if (id) void dokumentLoeschenAktion(id);
+        break;
+      case "monatspaket-herunterladen":
+        void monatspaketHerunterladen();
+        break;
     }
   });
 
@@ -1946,6 +2084,18 @@ function einrichten(): void {
       kontenblattKonto = kontenblattSelect.value;
       render();
     }
+
+    const dokumentDatei = ziel.closest<HTMLInputElement>("[data-aktion='dokument-datei-gewaehlt']");
+    if (dokumentDatei && dokumentDatei.files?.length) {
+      void dokumenteHochladen(dokumentDatei.files);
+      dokumentDatei.value = "";
+    }
+
+    const belegablageMonatFeld = ziel.closest<HTMLInputElement>("[data-aktion='belegablage-monat']");
+    if (belegablageMonatFeld) {
+      belegablageMonat = belegablageMonatFeld.value;
+      render();
+    }
   });
 
   document.addEventListener("keydown", (ereignis) => {
@@ -1971,6 +2121,7 @@ async function start(): Promise<void> {
     kassenKonto: "1000",
     importregeln: [],
     importlaeufe: [],
+    dokumente: [],
   };
   await datenNeuLaden();
   einrichten();

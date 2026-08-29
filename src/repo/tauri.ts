@@ -5,12 +5,12 @@
 import type Database from "@tauri-apps/plugin-sql";
 import { mkdir, readFile, remove, writeFile } from "@tauri-apps/plugin-fs";
 import { join } from "@tauri-apps/api/path";
-import type { Beleg, Buchung, Importlauf, Konto, Kostenstelle } from "../lib/types.ts";
+import type { Beleg, Buchung, Dokument, Importlauf, Konto, Kostenstelle } from "../lib/types.ts";
 import type { Gutschein } from "../lib/gutschein.ts";
 import { offenerBetrag, statusNachEinloesung } from "../lib/gutschein.ts";
 import { round2 } from "../lib/numbers.ts";
 import { uid } from "../lib/uid.ts";
-import { belegeOrdner } from "../db/pfade.ts";
+import { belegeOrdner, dokumenteOrdner } from "../db/pfade.ts";
 import type { Datenquelle, LoeschErgebnis, MandantEinstellungen } from "./typen.ts";
 
 interface KontoZeile {
@@ -326,6 +326,42 @@ export function erstelleTauriDatenquelle(db: Database, mandantId: string): Daten
 
     async importRueckgaengig(importlaufId) {
       await db.execute("DELETE FROM buchung WHERE import_id = $1", [importlaufId]);
+    },
+
+    async dokumente() {
+      return db.select<Dokument[]>(
+        "SELECT id, typ, datum, dateiname, pfad, mime, groesse, hinzugefuegt_am FROM dokument ORDER BY datum DESC, hinzugefuegt_am DESC",
+      );
+    },
+
+    async dokumentHinzufuegen(neuesDokument) {
+      const jahr = Number(neuesDokument.datum.slice(0, 4));
+      const ordner = await dokumenteOrdner(mandantId, jahr);
+      await mkdir(ordner, { recursive: true });
+      const dateiname = `${uid()}_${neuesDokument.dateiname}`;
+      const pfad = await join(ordner, dateiname);
+      await writeFile(pfad, neuesDokument.inhalt);
+      await db.execute(
+        "INSERT INTO dokument (id, typ, datum, dateiname, pfad, mime, groesse) VALUES ($1,$2,$3,$4,$5,$6,$7)",
+        [uid(), neuesDokument.typ, neuesDokument.datum, neuesDokument.dateiname, pfad, neuesDokument.mime, neuesDokument.inhalt.byteLength],
+      );
+    },
+
+    async dokumentLoeschen(id) {
+      const zeilen = await db.select<{ pfad: string }[]>("SELECT pfad FROM dokument WHERE id = $1", [id]);
+      await db.execute("DELETE FROM dokument WHERE id = $1", [id]);
+      if (zeilen[0]) {
+        try {
+          await remove(zeilen[0].pfad);
+        } catch {
+          // Datei bereits verschwunden — der Datenbankeintrag ist trotzdem weg.
+        }
+      }
+    },
+
+    async dokumentInhalt(dokument) {
+      const bytes = await readFile(dokument.pfad);
+      return new Blob([bytes], { type: dokument.mime });
     },
   };
 }
