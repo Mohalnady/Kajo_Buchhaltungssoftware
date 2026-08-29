@@ -25,7 +25,7 @@ export function formatVonDateiname(name: string): ImportFormat {
 /** Erkennt UTF-8 gegenüber Windows-1252 (SPEC.md: beide Zeichensätze unterstützen). */
 export function textDecodieren(buffer: ArrayBuffer): string {
   const utf8 = new TextDecoder("utf-8", { fatal: false }).decode(buffer);
-  if (!utf8.includes("�")) return utf8;
+  if (!utf8.includes("\uFFFD")) return utf8;
   return new TextDecoder("windows-1252").decode(buffer);
 }
 
