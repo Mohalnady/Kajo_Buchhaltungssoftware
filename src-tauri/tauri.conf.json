@@ -28,6 +28,11 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
+    "publisher": "Kontor",
+    "category": "Finance",
+    "shortDescription": "Buchhaltung und Abrechnung für kleine Einzelhandelsbetriebe",
+    "longDescription": "Kontor ist ein internes Buchhaltungs- und Abrechnungsprogramm für kleine Einzelhandelsbetriebe in Deutschland: Buchungen, Kassenbuch, Auswertungen (BWA, EÜR, USt-Voranmeldung), Personal und Zeiterfassung. Keine GoBD-Zertifizierung, kein Ersatz für eine TSE-Kasse, keine Lohnabrechnung im rechtlichen Sinn, keine Steuerberatung.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
