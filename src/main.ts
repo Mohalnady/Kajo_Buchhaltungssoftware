@@ -40,6 +40,8 @@ import { sicherungEinspielen, sicherungenAuflisten, sicherungErstellen, sicherun
 import type { BackupIntervall } from "./lib/sicherung.ts";
 import { join as pfadJoin } from "@tauri-apps/api/path";
 import { open as ordnerWaehlen } from "@tauri-apps/plugin-dialog";
+import { invoke } from "@tauri-apps/api/core";
+import { readFile } from "@tauri-apps/plugin-fs";
 import type { Datenquelle } from "./repo/typen.ts";
 import { formatVonDateiname, inhaltEinlesen } from "./lib/dateiimport.ts";
 import { spaltenErkennen, type DublettenKandidat, type ImportFeld } from "./lib/import-parser.ts";
@@ -2531,11 +2533,17 @@ async function benutzerSpeichernAktion(id: string): Promise<void> {
 let sicherungOrdner = "";
 let sicherungIntervall: BackupIntervall = "woechentlich";
 let sicherungListe: string[] = [];
+let googleDriveClientId = "";
+let googleDriveAktiv = false;
+let googleDriveIstVerbunden = false;
 
 async function sicherungEinstellungenLaden(): Promise<void> {
   sicherungOrdner = (await einstellungLesen("backup_ordner")) ?? "";
   sicherungIntervall = ((await einstellungLesen("backup_intervall")) as BackupIntervall | null) ?? "woechentlich";
   sicherungListe = sicherungOrdner ? await sicherungenAuflisten(sicherungOrdner) : [];
+  googleDriveClientId = (await einstellungLesen("google_drive_client_id")) ?? "";
+  googleDriveAktiv = (await einstellungLesen("google_drive_aktiv")) === "1";
+  googleDriveIstVerbunden = await invoke<boolean>("google_drive_verbunden");
 }
 
 function renderSicherung(): string {
@@ -2578,6 +2586,32 @@ function renderSicherung(): string {
           .join("")}
       </tbody></table></div>`
           : `<div class="empty">${t(zustand.sprache, "keine")}</div>`
+      }
+    </div>
+    <div class="card" style="margin-top:16px">
+      <h2 style="margin-top:0">${t(zustand.sprache, "google_drive_titel")}</h2>
+      <div class="hint">${t(zustand.sprache, "google_drive_hinweis")}</div>
+      <div class="row" style="align-items:flex-end;margin-top:12px">
+        <div style="flex:2"><label class="f">${t(zustand.sprache, "google_drive_client_id")}</label>
+          <input id="f-google-drive-client-id" value="${escapeHtml(googleDriveClientId)}" ${googleDriveIstVerbunden ? "disabled" : ""}></div>
+        <button class="btn ghost fit" data-aktion="google-drive-client-id-speichern" ${googleDriveIstVerbunden ? "disabled" : ""}>${t(zustand.sprache, "save")}</button>
+      </div>
+      <div class="row" style="margin-top:16px;align-items:center">
+        <span class="hint">${t(zustand.sprache, googleDriveIstVerbunden ? "google_drive_verbunden_status" : "google_drive_nicht_verbunden")}</span>
+        <div class="sp"></div>
+        ${
+          googleDriveIstVerbunden
+            ? `<button class="btn danger ghost fit" data-aktion="google-drive-trennen">${t(zustand.sprache, "google_drive_trennen")}</button>`
+            : `<button class="btn fit" data-aktion="google-drive-verbinden" ${!googleDriveClientId ? "disabled" : ""}>${t(zustand.sprache, "google_drive_verbinden")}</button>`
+        }
+      </div>
+      ${
+        googleDriveIstVerbunden
+          ? `<label class="row" style="margin-top:16px;align-items:center;gap:8px">
+              <input type="checkbox" data-aktion="google-drive-aktiv-geaendert" ${googleDriveAktiv ? "checked" : ""}>
+              <span>${t(zustand.sprache, "google_drive_bei_sicherung_hochladen")}</span>
+            </label>`
+          : ""
       }
     </div>`
   );
@@ -2632,8 +2666,9 @@ async function sicherungErstellenBestaetigen(): Promise<void> {
     zeigeAuthFehler(t(zustand.sprache, "fehler_passwoerter_ungleich"));
     return;
   }
-  await sicherungErstellen(sicherungOrdner, p1);
+  const dateiname = await sicherungErstellen(sicherungOrdner, p1);
   sicherungListe = await sicherungenAuflisten(sicherungOrdner);
+  await sicherungNachGoogleDriveHochladen(dateiname);
   closeModal();
   render();
   zeigeMeldung(t(zustand.sprache, "gespeichert"));
@@ -2664,6 +2699,54 @@ async function sicherungEinspielenBestaetigen(dateiname: string): Promise<void> 
   await sicherungEinspielen(pfad, passphrase);
   closeModal();
   zeigeMeldung(t(zustand.sprache, "sicherung_eingespielt_neu_starten"));
+}
+
+async function sicherungNachGoogleDriveHochladen(dateiname: string): Promise<void> {
+  if (!googleDriveIstVerbunden || !googleDriveAktiv) return;
+  try {
+    const pfad = await pfadJoin(sicherungOrdner, dateiname);
+    const inhalt = await readFile(pfad);
+    await invoke("google_drive_datei_hochladen", {
+      clientId: googleDriveClientId,
+      dateiname,
+      inhalt: Array.from(inhalt),
+    });
+  } catch (fehler) {
+    zeigeMeldung(t(zustand.sprache, "google_drive_upload_fehlgeschlagen") + ": " + String(fehler));
+  }
+}
+
+// ---------- Google Drive (Sicherung, SPEC.md Abschnitt 9) ----------
+
+async function googleDriveClientIdSpeichern(): Promise<void> {
+  const wert = document.querySelector<HTMLInputElement>("#f-google-drive-client-id")?.value.trim() ?? "";
+  googleDriveClientId = wert;
+  await einstellungSchreiben("google_drive_client_id", wert);
+  render();
+}
+
+async function googleDriveVerbinden(): Promise<void> {
+  try {
+    await invoke("google_drive_autorisieren", { clientId: googleDriveClientId });
+    googleDriveIstVerbunden = true;
+    render();
+    zeigeMeldung(t(zustand.sprache, "google_drive_verbunden_status"));
+  } catch (fehler) {
+    zeigeMeldung(t(zustand.sprache, "google_drive_verbindung_fehlgeschlagen") + ": " + String(fehler));
+  }
+}
+
+async function googleDriveTrennenAktion(): Promise<void> {
+  await invoke("google_drive_trennen");
+  googleDriveIstVerbunden = false;
+  googleDriveAktiv = false;
+  await einstellungSchreiben("google_drive_aktiv", "0");
+  render();
+}
+
+async function googleDriveAktivGeaendert(aktiv: boolean): Promise<void> {
+  googleDriveAktiv = aktiv;
+  await einstellungSchreiben("google_drive_aktiv", aktiv ? "1" : "0");
 }
 
 // ---------- Platzhalter für kommende Phasen ----------
@@ -3012,6 +3095,15 @@ function einrichten(): void {
       case "sicherung-einspielen-bestaetigen":
         if (datei) void sicherungEinspielenBestaetigen(datei);
         break;
+      case "google-drive-client-id-speichern":
+        void googleDriveClientIdSpeichern();
+        break;
+      case "google-drive-verbinden":
+        void googleDriveVerbinden();
+        break;
+      case "google-drive-trennen":
+        void googleDriveTrennenAktion();
+        break;
     }
   });
 
@@ -3023,6 +3115,10 @@ function einrichten(): void {
     const sicherungIntervallSelect = ziel.closest<HTMLSelectElement>("[data-aktion='sicherung-intervall-geaendert']");
     if (sicherungIntervallSelect) {
       void sicherungIntervallGeaendert(sicherungIntervallSelect.value as BackupIntervall);
+    }
+    const googleDriveAktivBox = ziel.closest<HTMLInputElement>("[data-aktion='google-drive-aktiv-geaendert']");
+    if (googleDriveAktivBox) {
+      void googleDriveAktivGeaendert(googleDriveAktivBox.checked);
     }
     const belegDatei = ziel.closest<HTMLInputElement>("[data-aktion='beleg-datei-gewaehlt']");
     if (belegDatei && belegDatei.files?.length) {

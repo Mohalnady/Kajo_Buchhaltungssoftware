@@ -3,6 +3,9 @@ use argon2::Argon2;
 use rand_core::OsRng;
 use tauri_plugin_sql::{Migration, MigrationKind};
 
+mod google_drive;
+use google_drive::{google_drive_autorisieren, google_drive_datei_hochladen, google_drive_trennen, google_drive_verbunden};
+
 // Migration der zentralen Datei kontor.db (Mandantenregister, Benutzer, globale
 // Einstellungen). Siehe migrations/zentral/0001_init.sql und SPEC.md Abschnitt 4.
 fn zentrale_migrationen() -> Vec<Migration> {
@@ -84,7 +87,11 @@ pub fn run() {
     .invoke_handler(tauri::generate_handler![
       mandant_schema_sql,
       passwort_hashen,
-      passwort_pruefen
+      passwort_pruefen,
+      google_drive_autorisieren,
+      google_drive_verbunden,
+      google_drive_trennen,
+      google_drive_datei_hochladen
     ])
     .setup(|app| {
       if cfg!(debug_assertions) {

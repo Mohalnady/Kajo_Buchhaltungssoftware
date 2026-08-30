@@ -261,6 +261,16 @@ const de: Woerterbuch = {
   sicherung_falsches_passwort: "Falsches Passwort oder beschädigte Sicherungsdatei.",
   sicherung_einspielen_bestaetigen: "Einspielen bestätigen",
   sicherung_eingespielt_neu_starten: "Sicherung eingespielt. Bitte Kontor neu starten.",
+  google_drive_titel: "Google Drive",
+  google_drive_hinweis: "Optional. Erfordert ein eigenes Google-Cloud-Projekt mit einem OAuth-Client vom Typ „Desktop-App“. Kontor legt kein eigenes Google-Projekt an — die Client-ID muss selbst eingetragen werden.",
+  google_drive_client_id: "Client-ID",
+  google_drive_verbinden: "Mit Google Drive verbinden",
+  google_drive_verbunden_status: "Mit Google Drive verbunden.",
+  google_drive_nicht_verbunden: "Nicht mit Google Drive verbunden.",
+  google_drive_trennen: "Verbindung trennen",
+  google_drive_bei_sicherung_hochladen: "Jede Sicherung zusätzlich zu Google Drive hochladen",
+  google_drive_verbindung_fehlgeschlagen: "Verbindung zu Google Drive fehlgeschlagen",
+  google_drive_upload_fehlgeschlagen: "Hochladen zu Google Drive fehlgeschlagen",
 };
 
 const en: Woerterbuch = {
@@ -513,6 +523,16 @@ const en: Woerterbuch = {
   sicherung_falsches_passwort: "Wrong password or corrupted backup file.",
   sicherung_einspielen_bestaetigen: "Confirm restore",
   sicherung_eingespielt_neu_starten: "Backup restored. Please restart Kontor.",
+  google_drive_titel: "Google Drive",
+  google_drive_hinweis: "Optional. Requires your own Google Cloud project with an OAuth client of type \"Desktop app\". Kontor does not ship its own Google project — the client ID must be entered yourself.",
+  google_drive_client_id: "Client ID",
+  google_drive_verbinden: "Connect to Google Drive",
+  google_drive_verbunden_status: "Connected to Google Drive.",
+  google_drive_nicht_verbunden: "Not connected to Google Drive.",
+  google_drive_trennen: "Disconnect",
+  google_drive_bei_sicherung_hochladen: "Also upload every backup to Google Drive",
+  google_drive_verbindung_fehlgeschlagen: "Connection to Google Drive failed",
+  google_drive_upload_fehlgeschlagen: "Upload to Google Drive failed",
 };
 
 const ar: Woerterbuch = {
@@ -765,6 +785,16 @@ const ar: Woerterbuch = {
   sicherung_falsches_passwort: "كلمة مرور خاطئة أو ملف النسخة الاحتياطية تالف.",
   sicherung_einspielen_bestaetigen: "تأكيد الاستعادة",
   sicherung_eingespielt_neu_starten: "تمت استعادة النسخة الاحتياطية. يرجى إعادة تشغيل Kontor.",
+  google_drive_titel: "Google Drive",
+  google_drive_hinweis: "اختياري. يتطلب مشروع Google Cloud خاصًا بك مع عميل OAuth من نوع \"تطبيق سطح المكتب\". لا يأتي Kontor بمشروع Google خاص به — يجب إدخال معرّف العميل بنفسك.",
+  google_drive_client_id: "معرّف العميل",
+  google_drive_verbinden: "الاتصال بـ Google Drive",
+  google_drive_verbunden_status: "متصل بـ Google Drive.",
+  google_drive_nicht_verbunden: "غير متصل بـ Google Drive.",
+  google_drive_trennen: "قطع الاتصال",
+  google_drive_bei_sicherung_hochladen: "رفع كل نسخة احتياطية إلى Google Drive أيضًا",
+  google_drive_verbindung_fehlgeschlagen: "فشل الاتصال بـ Google Drive",
+  google_drive_upload_fehlgeschlagen: "فشل الرفع إلى Google Drive",
 };
 
 export const WOERTERBUECHER: Record<Sprache, Woerterbuch> = { de, en, ar };
