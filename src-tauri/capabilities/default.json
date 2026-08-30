@@ -33,6 +33,8 @@
     },
     "dialog:default",
     "dialog:allow-open",
+    "updater:default",
+    "process:default",
     {
       "identifier": "fs:allow-mkdir",
       "allow": [{ "path": "**" }]

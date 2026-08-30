@@ -295,6 +295,12 @@ const de: Woerterbuch = {
   erstinbetriebnahme_hinweis: "Bevor es losgeht: ein paar Angaben zu Ihrer Firma. Diese erscheinen später auf Auswertungen und Ausdrucken und lassen sich jederzeit unter Einstellungen ändern.",
   erstinbetriebnahme_ueberspringen: "Später einrichten",
   erstinbetriebnahme_abschliessen: "Fertig",
+  update_titel: "Programmversion",
+  update_version: "Version",
+  update_pruefen: "Nach Updates suchen",
+  update_aktuell: "Kontor ist auf dem neuesten Stand.",
+  update_verfuegbar: "Ein Update ist verfügbar. Jetzt herunterladen und installieren? Kontor startet danach neu.",
+  update_fehler: "Update-Prüfung fehlgeschlagen",
 };
 
 const en: Woerterbuch = {
@@ -581,6 +587,12 @@ const en: Woerterbuch = {
   erstinbetriebnahme_hinweis: "Before you start: a few details about your company. These will appear on reports and printouts later and can be changed any time under Settings.",
   erstinbetriebnahme_ueberspringen: "Set up later",
   erstinbetriebnahme_abschliessen: "Done",
+  update_titel: "App version",
+  update_version: "Version",
+  update_pruefen: "Check for updates",
+  update_aktuell: "Kontor is up to date.",
+  update_verfuegbar: "An update is available. Download and install now? Kontor will restart afterwards.",
+  update_fehler: "Update check failed",
 };
 
 const ar: Woerterbuch = {
@@ -867,6 +879,12 @@ const ar: Woerterbuch = {
   erstinbetriebnahme_hinweis: "قبل البدء: بعض البيانات عن شركتك. ستظهر لاحقًا في التقارير والمطبوعات ويمكن تغييرها في أي وقت من الإعدادات.",
   erstinbetriebnahme_ueberspringen: "الإعداد لاحقًا",
   erstinbetriebnahme_abschliessen: "تم",
+  update_titel: "إصدار البرنامج",
+  update_version: "الإصدار",
+  update_pruefen: "البحث عن تحديثات",
+  update_aktuell: "Kontor محدث بأحدث إصدار.",
+  update_verfuegbar: "يتوفر تحديث. تنزيله وتثبيته الآن؟ سيُعاد تشغيل Kontor بعد ذلك.",
+  update_fehler: "فشل التحقق من التحديث",
 };
 
 export const WOERTERBUECHER: Record<Sprache, Woerterbuch> = { de, en, ar };

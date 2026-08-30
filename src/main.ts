@@ -42,6 +42,9 @@ import { join as pfadJoin } from "@tauri-apps/api/path";
 import { open as ordnerWaehlen } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { readFile } from "@tauri-apps/plugin-fs";
+import { getVersion } from "@tauri-apps/api/app";
+import { check as updateSuchen } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 import type { Datenquelle, MandantEinstellungen } from "./repo/typen.ts";
 import { formatVonDateiname, inhaltEinlesen } from "./lib/dateiimport.ts";
 import { spaltenErkennen, type DublettenKandidat, type ImportFeld } from "./lib/import-parser.ts";
@@ -2543,6 +2546,10 @@ let googleDriveClientId = "";
 let googleDriveAktiv = false;
 let googleDriveIstVerbunden = false;
 
+let appVersion = "";
+type UpdateStatus = "unbekannt" | "wird_geprueft" | "aktuell" | "fehler";
+let updateStatus: UpdateStatus = "unbekannt";
+
 async function sicherungEinstellungenLaden(): Promise<void> {
   sicherungOrdner = (await einstellungLesen("backup_ordner")) ?? "";
   sicherungIntervall = ((await einstellungLesen("backup_intervall")) as BackupIntervall | null) ?? "woechentlich";
@@ -2843,14 +2850,48 @@ async function logoEntfernenAktion(): Promise<void> {
 }
 
 function renderEinstellungen(): string {
+  const updateKarte =
+    zustand.repo.modus === "tauri"
+      ? `<div class="card" style="margin-top:16px">
+          <h2 style="margin-top:0">${t(zustand.sprache, "update_titel")}</h2>
+          <div class="row" style="align-items:center">
+            <span class="hint" style="flex:1">${t(zustand.sprache, "update_version")}: ${escapeHtml(appVersion)}</span>
+            <button class="btn ghost fit" data-aktion="update-pruefen" ${updateStatus === "wird_geprueft" ? "disabled" : ""}>${t(zustand.sprache, "update_pruefen")}</button>
+          </div>
+          ${updateStatus === "aktuell" ? `<div class="hint" style="margin-top:8px">${t(zustand.sprache, "update_aktuell")}</div>` : ""}
+          ${updateStatus === "fehler" ? `<div class="hint" style="margin-top:8px;color:var(--neg)">${t(zustand.sprache, "update_fehler")}</div>` : ""}
+        </div>`
+      : "";
   return (
     topbarTitel(t(zustand.sprache, "einst")) +
     `<div class="card">${firmenprofilFelder(zustand.firmenprofil)}
       <div class="row" style="margin-top:20px;justify-content:flex-end">
         <button class="btn fit" data-aktion="firmenprofil-speichern">${t(zustand.sprache, "save")}</button>
       </div>
-    </div>`
+    </div>${updateKarte}`
   );
+}
+
+async function updatePruefenAktion(): Promise<void> {
+  updateStatus = "wird_geprueft";
+  render();
+  try {
+    const update = await updateSuchen();
+    if (update) {
+      if (confirm(`${t(zustand.sprache, "update_verfuegbar")} (${update.version})`)) {
+        await update.downloadAndInstall();
+        await relaunch();
+        return;
+      }
+      updateStatus = "unbekannt";
+    } else {
+      updateStatus = "aktuell";
+    }
+  } catch (fehler) {
+    updateStatus = "fehler";
+    zeigeMeldung(t(zustand.sprache, "update_fehler") + ": " + String(fehler));
+  }
+  render();
 }
 
 async function firmenprofilSpeichernAktion(): Promise<void> {
@@ -3265,6 +3306,9 @@ function einrichten(): void {
       case "erstinbetriebnahme-ueberspringen":
         void erstinbetriebnahmeUeberspringenAktion();
         break;
+      case "update-pruefen":
+        void updatePruefenAktion();
+        break;
     }
   });
 
@@ -3507,6 +3551,7 @@ async function appStarten(): Promise<void> {
   await datenNeuLaden();
   if (repo.modus === "tauri") {
     await sicherungEinstellungenLaden();
+    appVersion = await getVersion();
     if (!(await repo.erstinbetriebnahmeAbgeschlossen())) {
       appPhase = "erstinbetriebnahme";
     }

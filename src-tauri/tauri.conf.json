@@ -35,8 +35,24 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "windows": {
+      "nsis": {
+        "installMode": "perMachine",
+        "languages": ["German", "English"],
+        "displayLanguageSelector": true
+      }
+    },
     "android": {
       "debugApplicationIdSuffix": ".debug"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "active": true,
+      "endpoints": [
+        "https://github.com/Mohalnady/Kajo_Buchhaltungssoftware/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEVGMUREREMyMjE5OEZBMUEKUldRYStwZ2h3dDBkNzExaUpQaEJ6WERRaXVxenN5UVJHdkk4SFEvVldaUXg2d2hjVng4dDk4RGsK"
     }
   }
 }
