@@ -146,3 +146,16 @@ export interface Zuschlagsregel {
   prozent: number;
   aktiv: boolean;
 }
+
+// Zugang, siehe SPEC.md Abschnitt 8. Passwort-Hash/Salt bleiben Interna des
+// Datenzugriffs (db/zentral.ts) und tauchen in diesem Typ bewusst nicht auf,
+// damit sie nicht versehentlich durch die Oberfläche gereicht werden.
+export type Rolle = "inhaber" | "buchhalter" | "mitarbeiter" | "steuerberater";
+
+export interface Benutzer {
+  id: string;
+  name: string;
+  rolle: Rolle;
+  aktiv: boolean;
+  letzter_login?: string;
+}

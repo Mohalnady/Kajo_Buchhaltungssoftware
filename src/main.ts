@@ -8,6 +8,7 @@ import { formatEur, parseNumber, round2 } from "./lib/numbers.ts";
 import { uid } from "./lib/uid.ts";
 import type {
   Beleg,
+  Benutzer,
   Buchung,
   Beschaeftigungsart,
   Dokument,
@@ -17,12 +18,22 @@ import type {
   Konto,
   Kostenstelle,
   Mitarbeiter,
+  Rolle,
   Zeiteintrag,
   ZeiteintragArt,
   ZeiteintragStatus,
   Zuschlagsregel,
 } from "./lib/types.ts";
-import { erstelleDatenquelle } from "./repo/index.ts";
+import { erstelleDatenquelle, istTauri } from "./repo/index.ts";
+import {
+  benutzerAnmelden,
+  benutzerAnzahl,
+  benutzerListe,
+  benutzerAnlegen,
+  benutzerPasswortAendern,
+  benutzerRolleUndAktivSpeichern,
+  ersteBenutzerAnlegen,
+} from "./db/zentral.ts";
 import type { Datenquelle } from "./repo/typen.ts";
 import { formatVonDateiname, inhaltEinlesen } from "./lib/dateiimport.ts";
 import { spaltenErkennen, type DublettenKandidat, type ImportFeld } from "./lib/import-parser.ts";
@@ -126,14 +137,17 @@ const NAV: NavEintrag[] = [
   { typ: "ziel", key: "datenimport", label: "imp", icon: "imp" },
   { typ: "ziel", key: "belegablage", label: "belegablage", icon: "clip" },
   { typ: "ziel", key: "mandanten", label: "mand", icon: "build", phase: "P5" },
+  { typ: "ziel", key: "benutzer", label: "benutzer", icon: "users" },
   { typ: "ziel", key: "einstellungen", label: "einst", icon: "gear" },
-  { typ: "ziel", key: "sicherung", label: "sich", icon: "shield", phase: "P5" },
+  { typ: "ziel", key: "sicherung", label: "sich", icon: "shield" },
 ];
 
 interface Zustand {
   tab: string;
   sprache: Sprache;
   repo: Datenquelle;
+  benutzer: Benutzer;
+  benutzerListe: Benutzer[];
   konten: Konto[];
   kostenstellen: Kostenstelle[];
   buchungen: Buchung[];
@@ -184,6 +198,7 @@ async function datenNeuLaden(): Promise<void> {
   zustand.mitarbeiter = mitarbeiter;
   zustand.zeiteintraege = zeiteintraege;
   zustand.zuschlagsregeln = zuschlagsregeln;
+  zustand.benutzerListe = istTauri() ? await benutzerListe() : [zustand.benutzer];
 }
 
 function kontoVon(nr: string): Konto | undefined {
@@ -204,9 +219,9 @@ function zeigeMeldung(text: string): void {
 
 // ---------- Navigation und Rahmen ----------
 
-function renderSprachSchalter(): string {
+function renderSprachSchalter(aktuelleSprache: Sprache): string {
   return `<div class="seg" style="width:100%">${SPRACHEN.map(
-    (s) => `<button style="flex:1" data-sprache="${s.code}" class="${zustand.sprache === s.code ? "on" : ""}">${s.label}</button>`,
+    (s) => `<button style="flex:1" data-sprache="${s.code}" class="${aktuelleSprache === s.code ? "on" : ""}">${s.label}</button>`,
   ).join("")}</div>`;
 }
 
@@ -2297,6 +2312,124 @@ async function standardZuschlagsregelnLaden(): Promise<void> {
   zeigeMeldung(t(zustand.sprache, "gespeichert"));
 }
 
+// ---------- Benutzerverwaltung ----------
+
+const ROLLE_LABEL: Record<Rolle, string> = {
+  inhaber: "rolle_inhaber",
+  buchhalter: "rolle_buchhalter",
+  mitarbeiter: "rolle_mitarbeiter",
+  steuerberater: "rolle_steuerberater",
+};
+
+function renderBenutzer(): string {
+  const sortiert = [...zustand.benutzerListe].sort((a, b) => a.name.localeCompare(b.name));
+  const bearbeitbar = zustand.repo.modus === "tauri";
+  return (
+    topbarTitel(
+      t(zustand.sprache, "benutzer"),
+      bearbeitbar ? `<button class="btn" data-aktion="benutzer-neu">${icon("plus")}${t(zustand.sprache, "neu")}</button>` : "",
+    ) +
+    `<div class="card">
+      ${!bearbeitbar ? `<div class="hint" style="margin-bottom:12px">${t(zustand.sprache, "vorschau_hinweis")}</div>` : ""}
+      ${
+        sortiert.length
+          ? `<div class="tw"><table><thead><tr>
+            <th>${t(zustand.sprache, "name")}</th><th>${t(zustand.sprache, "rolle")}</th>
+            <th>${t(zustand.sprache, "status")}</th><th>${t(zustand.sprache, "letzter_login")}</th><th></th>
+          </tr></thead><tbody>
+            ${sortiert
+              .map(
+                (b) => `<tr>
+                  <td><b>${escapeHtml(b.name)}</b>${b.id === zustand.benutzer.id ? ` <span class="hint">(${t(zustand.sprache, "sie_selbst")})</span>` : ""}</td>
+                  <td>${t(zustand.sprache, ROLLE_LABEL[b.rolle])}</td>
+                  <td><span class="pill ${b.aktiv ? "g" : "r"}">${t(zustand.sprache, b.aktiv ? "aktiv" : "inaktiv")}</span></td>
+                  <td>${b.letzter_login ? b.letzter_login.slice(0, 10).split("-").reverse().join(".") : "—"}</td>
+                  <td style="text-align:end;white-space:nowrap">
+                    ${bearbeitbar ? `<button class="btn ghost sm" data-aktion="benutzer-bearbeiten" data-id="${escapeHtml(b.id)}">${icon("edit")}</button>` : ""}
+                  </td>
+                </tr>`,
+              )
+              .join("")}
+          </tbody></table></div>`
+          : `<div class="empty">${t(zustand.sprache, "keine")}</div>`
+      }
+    </div>`
+  );
+}
+
+function benutzerFormular(id?: string): void {
+  const bestehend = id ? zustand.benutzerListe.find((b) => b.id === id) : undefined;
+  const b = bestehend ?? { id: "", name: "", rolle: "mitarbeiter" as const, aktiv: true };
+  const istNeu = !bestehend;
+  openModal(`
+    <div class="mhead"><h2 style="margin:0">${istNeu ? t(zustand.sprache, "neu") : t(zustand.sprache, "edit")}</h2>
+      <button class="x" data-modal-close>${icon("x")}</button></div>
+    <div class="row">
+      <div><label class="f">${t(zustand.sprache, "name")}</label><input id="f-benutzer-name" value="${escapeHtml(b.name)}" ${istNeu ? "" : "disabled"}></div>
+      <div><label class="f">${t(zustand.sprache, "rolle")}</label>
+        <select id="f-benutzer-rolle">
+          ${(["inhaber", "buchhalter", "mitarbeiter", "steuerberater"] as const)
+            .map((x) => `<option value="${x}" ${b.rolle === x ? "selected" : ""}>${t(zustand.sprache, ROLLE_LABEL[x])}</option>`)
+            .join("")}
+        </select></div>
+    </div>
+    ${
+      istNeu
+        ? `<div class="row" style="margin-top:12px">
+      <div><label class="f">${t(zustand.sprache, "passwort")}</label><input type="password" id="f-benutzer-passwort"></div>
+      <div><label class="f">${t(zustand.sprache, "passwort_wiederholen")}</label><input type="password" id="f-benutzer-passwort2"></div>
+    </div>`
+        : `<div class="row" style="margin-top:12px">
+      <label class="f" style="display:flex;align-items:center;gap:8px;cursor:pointer">
+        <input type="checkbox" id="f-benutzer-aktiv" ${b.aktiv ? "checked" : ""}> ${t(zustand.sprache, "aktiv")}
+      </label>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <div><label class="f">${t(zustand.sprache, "neues_passwort")}</label><input type="password" id="f-benutzer-neues-passwort" placeholder="${t(zustand.sprache, "leer_lassen_unveraendert")}"></div>
+    </div>`
+    }
+    <div id="auth-fehler" class="hint" style="color:var(--neg);margin-top:10px"></div>
+    <div class="row" style="margin-top:20px;justify-content:flex-end">
+      <button class="btn ghost fit" data-modal-close>${t(zustand.sprache, "cancel")}</button>
+      <button class="btn fit" data-aktion="benutzer-speichern" data-id="${id ?? ""}">${t(zustand.sprache, "save")}</button>
+    </div>
+  `);
+}
+
+async function benutzerSpeichernAktion(id: string): Promise<void> {
+  if (!id) {
+    const name = document.querySelector<HTMLInputElement>("#f-benutzer-name")?.value.trim() ?? "";
+    const rolle = (document.querySelector<HTMLSelectElement>("#f-benutzer-rolle")?.value ?? "mitarbeiter") as Rolle;
+    const passwort = document.querySelector<HTMLInputElement>("#f-benutzer-passwort")?.value ?? "";
+    const passwort2 = document.querySelector<HTMLInputElement>("#f-benutzer-passwort2")?.value ?? "";
+    if (!name || passwort.length < 8) {
+      zeigeAuthFehler(t(zustand.sprache, "fehler_passwort_kurz"));
+      return;
+    }
+    if (passwort !== passwort2) {
+      zeigeAuthFehler(t(zustand.sprache, "fehler_passwoerter_ungleich"));
+      return;
+    }
+    await benutzerAnlegen(name, rolle, passwort);
+  } else {
+    const rolle = (document.querySelector<HTMLSelectElement>("#f-benutzer-rolle")?.value ?? "mitarbeiter") as Rolle;
+    const aktiv = document.querySelector<HTMLInputElement>("#f-benutzer-aktiv")?.checked ?? true;
+    await benutzerRolleUndAktivSpeichern(id, rolle, aktiv);
+    const neuesPasswort = document.querySelector<HTMLInputElement>("#f-benutzer-neues-passwort")?.value ?? "";
+    if (neuesPasswort) {
+      if (neuesPasswort.length < 8) {
+        zeigeAuthFehler(t(zustand.sprache, "fehler_passwort_kurz"));
+        return;
+      }
+      await benutzerPasswortAendern(id, neuesPasswort);
+    }
+  }
+  await datenNeuLaden();
+  closeModal();
+  render();
+  zeigeMeldung(t(zustand.sprache, "gespeichert"));
+}
+
 // ---------- Platzhalter für kommende Phasen ----------
 
 function renderPlatzhalter(): string {
@@ -2342,6 +2475,8 @@ function renderInhalt(): string {
       return renderMitarbeiter();
     case "stunden":
       return renderStunden();
+    case "benutzer":
+      return renderBenutzer();
     default:
       return renderPlatzhalter();
   }
@@ -2365,6 +2500,14 @@ function closeModal(): void {
 function render(): void {
   const app = document.querySelector<HTMLDivElement>("#app");
   if (!app) return;
+
+  if (appPhase !== "app") {
+    document.documentElement.dir = SPRACHEN.find((s) => s.code === authSprache)?.rtl ? "rtl" : "ltr";
+    document.documentElement.lang = authSprache;
+    app.innerHTML = appPhase === "ersteinrichtung" ? renderErsteinrichtung() : renderLogin();
+    return;
+  }
+
   document.documentElement.dir = SPRACHEN.find((s) => s.code === zustand.sprache)?.rtl ? "rtl" : "ltr";
   document.documentElement.lang = zustand.sprache;
 
@@ -2372,8 +2515,12 @@ function render(): void {
     <div class="app">
       <aside>
         <div class="brand"><b>K</b><span>Kontor</span></div>
-        <div class="mand">${renderSprachSchalter()}</div>
+        <div class="mand">${renderSprachSchalter(zustand.sprache)}</div>
         <nav>${renderNav()}</nav>
+        <div class="row" style="padding:12px 16px;align-items:center;gap:8px">
+          <span class="hint fit" style="flex:1">${escapeHtml(zustand.benutzer.name)}</span>
+          ${zustand.repo.modus === "tauri" ? `<button class="btn ghost sm fit" data-aktion="abmelden">${t(zustand.sprache, "abmelden")}</button>` : ""}
+        </div>
       </aside>
       <main>
         ${renderInhalt()}
@@ -2395,7 +2542,8 @@ function einrichten(): void {
     }
     const sprachBtn = ziel.closest<HTMLButtonElement>("[data-sprache]");
     if (sprachBtn) {
-      zustand.sprache = sprachBtn.dataset.sprache as Sprache;
+      if (appPhase === "app") zustand.sprache = sprachBtn.dataset.sprache as Sprache;
+      else authSprache = sprachBtn.dataset.sprache as Sprache;
       render();
       return;
     }
@@ -2589,6 +2737,24 @@ function einrichten(): void {
       case "zuschlagsregeln-laden":
         void standardZuschlagsregelnLaden();
         break;
+      case "ersteinrichtung-anlegen":
+        void ersteinrichtungAnlegen();
+        break;
+      case "login-absenden":
+        void loginAbsenden();
+        break;
+      case "abmelden":
+        abmelden();
+        break;
+      case "benutzer-neu":
+        benutzerFormular();
+        break;
+      case "benutzer-bearbeiten":
+        if (id) benutzerFormular(id);
+        break;
+      case "benutzer-speichern":
+        void benutzerSpeichernAktion(id ?? "");
+        break;
     }
   });
 
@@ -2691,12 +2857,93 @@ function einrichten(): void {
   });
 }
 
-async function start(): Promise<void> {
+// ---------- Zugang (Ersteinrichtung, Login) ----------
+//
+// Die Vorschau ohne Tauri überspringt den Zugang vollständig (synthetische
+// Inhaber-Sitzung), weil sie ohnehin nichts dauerhaft speichert und keine
+// eigene zentrale Datenbank hat. Im echten Tauri-Fenster steht vor der
+// eigentlichen App immer Ersteinrichtung (kein Benutzer vorhanden) oder Login.
+
+type AppPhase = "ersteinrichtung" | "login" | "app";
+let appPhase: AppPhase = "app";
+let authSprache: Sprache = "de";
+let angemeldeterBenutzer: Benutzer | null = null;
+
+function zeigeAuthFehler(text: string): void {
+  const el = document.querySelector<HTMLDivElement>("#auth-fehler");
+  if (el) el.textContent = text;
+}
+
+function renderErsteinrichtung(): string {
+  return `
+    <div class="card" style="max-width:420px;margin:80px auto">
+      <h1 style="margin-top:0">Kontor</h1>
+      <p class="hint">${t(authSprache, "ersteinrichtung_hinweis")}</p>
+      <div style="margin-top:16px">${renderSprachSchalter(authSprache)}</div>
+      <div style="margin-top:16px"><label class="f">${t(authSprache, "name")}</label><input id="f-eu-name" placeholder="Max Mustermann"></div>
+      <div style="margin-top:12px"><label class="f">${t(authSprache, "passwort")}</label><input type="password" id="f-eu-passwort"></div>
+      <div style="margin-top:12px"><label class="f">${t(authSprache, "passwort_wiederholen")}</label><input type="password" id="f-eu-passwort2"></div>
+      <button class="btn" style="margin-top:20px;width:100%" data-aktion="ersteinrichtung-anlegen">${t(authSprache, "ersteinrichtung_anlegen")}</button>
+      <div id="auth-fehler" class="hint" style="color:var(--neg);margin-top:10px"></div>
+    </div>`;
+}
+
+function renderLogin(): string {
+  return `
+    <div class="card" style="max-width:360px;margin:100px auto">
+      <h1 style="margin-top:0">Kontor</h1>
+      <div style="margin-top:16px">${renderSprachSchalter(authSprache)}</div>
+      <div style="margin-top:16px"><label class="f">${t(authSprache, "name")}</label><input id="f-login-name"></div>
+      <div style="margin-top:12px"><label class="f">${t(authSprache, "passwort")}</label><input type="password" id="f-login-passwort"></div>
+      <button class="btn" style="margin-top:20px;width:100%" data-aktion="login-absenden">${t(authSprache, "anmelden")}</button>
+      <div id="auth-fehler" class="hint" style="color:var(--neg);margin-top:10px"></div>
+    </div>`;
+}
+
+async function ersteinrichtungAnlegen(): Promise<void> {
+  const name = document.querySelector<HTMLInputElement>("#f-eu-name")?.value.trim() ?? "";
+  const passwort = document.querySelector<HTMLInputElement>("#f-eu-passwort")?.value ?? "";
+  const passwort2 = document.querySelector<HTMLInputElement>("#f-eu-passwort2")?.value ?? "";
+  if (!name || passwort.length < 8) {
+    zeigeAuthFehler(t(authSprache, "fehler_passwort_kurz"));
+    return;
+  }
+  if (passwort !== passwort2) {
+    zeigeAuthFehler(t(authSprache, "fehler_passwoerter_ungleich"));
+    return;
+  }
+  angemeldeterBenutzer = await ersteBenutzerAnlegen(name, passwort);
+  appPhase = "app";
+  await appStarten();
+}
+
+async function loginAbsenden(): Promise<void> {
+  const name = document.querySelector<HTMLInputElement>("#f-login-name")?.value.trim() ?? "";
+  const passwort = document.querySelector<HTMLInputElement>("#f-login-passwort")?.value ?? "";
+  const benutzer = await benutzerAnmelden(name, passwort);
+  if (!benutzer) {
+    zeigeAuthFehler(t(authSprache, "fehler_login"));
+    return;
+  }
+  angemeldeterBenutzer = benutzer;
+  appPhase = "app";
+  await appStarten();
+}
+
+function abmelden(): void {
+  angemeldeterBenutzer = null;
+  appPhase = "login";
+  render();
+}
+
+async function appStarten(): Promise<void> {
   const repo = await erstelleDatenquelle();
   zustand = {
     tab: "dashboard",
-    sprache: "de",
+    sprache: authSprache,
     repo,
+    benutzer: angemeldeterBenutzer!,
+    benutzerListe: [],
     konten: [],
     kostenstellen: [],
     buchungen: [],
@@ -2715,7 +2962,19 @@ async function start(): Promise<void> {
     zuschlagsregeln: [],
   };
   await datenNeuLaden();
+  render();
+}
+
+async function start(): Promise<void> {
   einrichten();
+  if (!istTauri()) {
+    angemeldeterBenutzer = { id: "vorschau", name: "Vorschau", rolle: "inhaber", aktiv: true };
+    appPhase = "app";
+    await appStarten();
+    return;
+  }
+  const anzahl = await benutzerAnzahl();
+  appPhase = anzahl === 0 ? "ersteinrichtung" : "login";
   render();
 }
 
