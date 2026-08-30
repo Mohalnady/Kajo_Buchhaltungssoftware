@@ -1,4 +1,6 @@
-// Zugriff auf die zentrale Datei $APPDATA/kontor/kontor.db.
+// Zugriff auf die zentrale Datei $APPDATA/kontor.db (relativ zu
+// BaseDirectory::App, siehe tauri-plugin-sql — bewusst außerhalb des
+// "kontor"-Unterordners, in dem Mandanten-DBs, Belege und Dokumente liegen).
 // Schema und Migration: src-tauri/migrations/zentral/0001_init.sql.
 
 import Database from "@tauri-apps/plugin-sql";
@@ -91,4 +93,17 @@ export async function benutzerAnmelden(name: string, passwort: string): Promise<
   if (!gueltig) return null;
   await (await db()).execute("UPDATE benutzer SET letzter_login = datetime('now') WHERE id = $1", [zeile.id]);
   return zeileZuBenutzer(zeile);
+}
+
+/** Schlüssel/Wert-Einstellungen, z. B. für die Sicherung (backup_ordner, backup_intervall, backup_letzte). */
+export async function einstellungLesen(schluessel: string): Promise<string | null> {
+  const zeilen = await (await db()).select<{ wert: string | null }[]>("SELECT wert FROM einstellung WHERE schluessel = $1", [schluessel]);
+  return zeilen[0]?.wert ?? null;
+}
+
+export async function einstellungSchreiben(schluessel: string, wert: string): Promise<void> {
+  await (await db()).execute(
+    "INSERT INTO einstellung (schluessel, wert) VALUES ($1, $2) ON CONFLICT (schluessel) DO UPDATE SET wert = $2",
+    [schluessel, wert],
+  );
 }

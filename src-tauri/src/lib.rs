@@ -80,6 +80,7 @@ pub fn run() {
         .build(),
     )
     .plugin(tauri_plugin_fs::init())
+    .plugin(tauri_plugin_dialog::init())
     .invoke_handler(tauri::generate_handler![
       mandant_schema_sql,
       passwort_hashen,

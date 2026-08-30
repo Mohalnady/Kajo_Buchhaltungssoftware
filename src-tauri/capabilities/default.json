@@ -30,6 +30,32 @@
     {
       "identifier": "fs:allow-exists",
       "allow": [{ "path": "$APPDATA/kontor/**" }]
+    },
+    "dialog:default",
+    "dialog:allow-open",
+    {
+      "identifier": "fs:allow-mkdir",
+      "allow": [{ "path": "**" }]
+    },
+    {
+      "identifier": "fs:allow-write-file",
+      "allow": [{ "path": "**" }]
+    },
+    {
+      "identifier": "fs:allow-read-file",
+      "allow": [{ "path": "**" }]
+    },
+    {
+      "identifier": "fs:allow-remove",
+      "allow": [{ "path": "**" }]
+    },
+    {
+      "identifier": "fs:allow-exists",
+      "allow": [{ "path": "**" }]
+    },
+    {
+      "identifier": "fs:allow-read-dir",
+      "allow": [{ "path": "**" }]
     }
   ]
 }

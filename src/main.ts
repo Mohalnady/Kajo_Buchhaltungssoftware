@@ -32,8 +32,14 @@ import {
   benutzerAnlegen,
   benutzerPasswortAendern,
   benutzerRolleUndAktivSpeichern,
+  einstellungLesen,
+  einstellungSchreiben,
   ersteBenutzerAnlegen,
 } from "./db/zentral.ts";
+import { sicherungEinspielen, sicherungenAuflisten, sicherungErstellen, sicherungVorschau } from "./repo/sicherungTauri.ts";
+import type { BackupIntervall } from "./lib/sicherung.ts";
+import { join as pfadJoin } from "@tauri-apps/api/path";
+import { open as ordnerWaehlen } from "@tauri-apps/plugin-dialog";
 import type { Datenquelle } from "./repo/typen.ts";
 import { formatVonDateiname, inhaltEinlesen } from "./lib/dateiimport.ts";
 import { spaltenErkennen, type DublettenKandidat, type ImportFeld } from "./lib/import-parser.ts";
@@ -2517,6 +2523,149 @@ async function benutzerSpeichernAktion(id: string): Promise<void> {
   zeigeMeldung(t(zustand.sprache, "gespeichert"));
 }
 
+// ---------- Sicherung ----------
+//
+// Nur mit echtem Tauri-Zugriff sinnvoll (schreibt echte Dateien) — die
+// Vorschau im Browser zeigt stattdessen einen Hinweis, siehe renderSicherung.
+
+let sicherungOrdner = "";
+let sicherungIntervall: BackupIntervall = "woechentlich";
+let sicherungListe: string[] = [];
+
+async function sicherungEinstellungenLaden(): Promise<void> {
+  sicherungOrdner = (await einstellungLesen("backup_ordner")) ?? "";
+  sicherungIntervall = ((await einstellungLesen("backup_intervall")) as BackupIntervall | null) ?? "woechentlich";
+  sicherungListe = sicherungOrdner ? await sicherungenAuflisten(sicherungOrdner) : [];
+}
+
+function renderSicherung(): string {
+  if (zustand.repo.modus !== "tauri") {
+    return topbarTitel(t(zustand.sprache, "sich")) + `<div class="card"><div class="hint">${t(zustand.sprache, "vorschau_hinweis")}</div></div>`;
+  }
+
+  return (
+    topbarTitel(t(zustand.sprache, "sich")) +
+    `<div class="card">
+      <h2 style="margin-top:0">${t(zustand.sprache, "sicherung_ordner")}</h2>
+      <div class="row" style="align-items:flex-end">
+        <div style="flex:2"><label class="f">${t(zustand.sprache, "sicherung_ordner")}</label>
+          <input value="${escapeHtml(sicherungOrdner || t(zustand.sprache, "sicherung_kein_ordner"))}" disabled></div>
+        <button class="btn ghost fit" data-aktion="sicherung-ordner-waehlen">${t(zustand.sprache, "sicherung_ordner_waehlen")}</button>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <div><label class="f">${t(zustand.sprache, "sicherung_intervall")}</label>
+          <select data-aktion="sicherung-intervall-geaendert">
+            ${(["taeglich", "woechentlich", "monatlich"] as const)
+              .map((x) => `<option value="${x}" ${sicherungIntervall === x ? "selected" : ""}>${t(zustand.sprache, `intervall_${x}`)}</option>`)
+              .join("")}
+          </select></div>
+      </div>
+      <div class="row" style="margin-top:20px">
+        <button class="btn fit" data-aktion="sicherung-jetzt" ${!sicherungOrdner ? "disabled" : ""}>${icon("shield")}${t(zustand.sprache, "sicherung_jetzt")}</button>
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <h2 style="margin-top:0">${t(zustand.sprache, "sicherung_vorhandene")}</h2>
+      ${
+        sicherungListe.length
+          ? `<div class="tw"><table><thead><tr><th>${t(zustand.sprache, "name")}</th><th></th></tr></thead><tbody>
+        ${sicherungListe
+          .map(
+            (name) => `<tr><td>${escapeHtml(name)}</td><td style="text-align:end">
+              <button class="btn ghost sm" data-aktion="sicherung-wiederherstellen" data-datei="${escapeHtml(name)}">${t(zustand.sprache, "sicherung_wiederherstellen")}</button>
+            </td></tr>`,
+          )
+          .join("")}
+      </tbody></table></div>`
+          : `<div class="empty">${t(zustand.sprache, "keine")}</div>`
+      }
+    </div>`
+  );
+}
+
+async function sicherungOrdnerWaehlen(): Promise<void> {
+  const gewaehlt = await ordnerWaehlen({ directory: true, multiple: false });
+  if (typeof gewaehlt !== "string") return;
+  sicherungOrdner = gewaehlt;
+  await einstellungSchreiben("backup_ordner", gewaehlt);
+  sicherungListe = await sicherungenAuflisten(gewaehlt);
+  render();
+}
+
+async function sicherungIntervallGeaendert(wert: BackupIntervall): Promise<void> {
+  sicherungIntervall = wert;
+  await einstellungSchreiben("backup_intervall", wert);
+}
+
+function sicherungPassphraseFormular(modus: "erstellen" | "wiederherstellen", dateiname?: string): void {
+  openModal(`
+    <div class="mhead"><h2 style="margin:0">${t(zustand.sprache, modus === "erstellen" ? "sicherung_jetzt" : "sicherung_wiederherstellen")}</h2>
+      <button class="x" data-modal-close>${icon("x")}</button></div>
+    ${modus === "erstellen" ? `<div class="hint">${t(zustand.sprache, "sicherung_passphrase_hinweis")}</div>` : ""}
+    <div style="margin-top:12px"><label class="f">${t(zustand.sprache, "passwort")}</label><input type="password" id="f-sicherung-passphrase"></div>
+    ${
+      modus === "erstellen"
+        ? `<div style="margin-top:12px"><label class="f">${t(zustand.sprache, "passwort_wiederholen")}</label><input type="password" id="f-sicherung-passphrase2"></div>`
+        : ""
+    }
+    <div id="auth-fehler" class="hint" style="color:var(--neg);margin-top:10px"></div>
+    <div id="sicherung-vorschau" style="margin-top:12px"></div>
+    <div class="row" style="margin-top:20px;justify-content:flex-end">
+      <button class="btn ghost fit" data-modal-close>${t(zustand.sprache, "cancel")}</button>
+      ${
+        modus === "erstellen"
+          ? `<button class="btn fit" data-aktion="sicherung-erstellen-bestaetigen">${t(zustand.sprache, "sicherung_jetzt")}</button>`
+          : `<button class="btn fit" data-aktion="sicherung-vorschau-anzeigen" data-datei="${escapeHtml(dateiname ?? "")}">${t(zustand.sprache, "sicherung_vorschau_anzeigen")}</button>`
+      }
+    </div>
+  `);
+}
+
+async function sicherungErstellenBestaetigen(): Promise<void> {
+  const p1 = document.querySelector<HTMLInputElement>("#f-sicherung-passphrase")?.value ?? "";
+  const p2 = document.querySelector<HTMLInputElement>("#f-sicherung-passphrase2")?.value ?? "";
+  if (p1.length < 8) {
+    zeigeAuthFehler(t(zustand.sprache, "fehler_passwort_kurz"));
+    return;
+  }
+  if (p1 !== p2) {
+    zeigeAuthFehler(t(zustand.sprache, "fehler_passwoerter_ungleich"));
+    return;
+  }
+  await sicherungErstellen(sicherungOrdner, p1);
+  sicherungListe = await sicherungenAuflisten(sicherungOrdner);
+  closeModal();
+  render();
+  zeigeMeldung(t(zustand.sprache, "gespeichert"));
+}
+
+async function sicherungVorschauAnzeigen(dateiname: string): Promise<void> {
+  const passphrase = document.querySelector<HTMLInputElement>("#f-sicherung-passphrase")?.value ?? "";
+  const pfad = await pfadJoin(sicherungOrdner, dateiname);
+  try {
+    const manifest = await sicherungVorschau(pfad, passphrase);
+    const vorschauDiv = document.querySelector<HTMLDivElement>("#sicherung-vorschau");
+    if (vorschauDiv) {
+      vorschauDiv.innerHTML = `
+        <div class="hint">${t(zustand.sprache, "sicherung_erstellt_am")}: ${new Date(manifest.erstellt_am).toLocaleString()}</div>
+        <ul style="margin:8px 0">${manifest.mandanten.map((m) => `<li>${escapeHtml(m.name)}</li>`).join("")}</ul>
+        <button class="btn danger fit" data-aktion="sicherung-einspielen-bestaetigen" data-datei="${escapeHtml(dateiname)}">${t(zustand.sprache, "sicherung_wirklich_einspielen")}</button>
+      `;
+    }
+  } catch {
+    zeigeAuthFehler(t(zustand.sprache, "sicherung_falsches_passwort"));
+  }
+}
+
+async function sicherungEinspielenBestaetigen(dateiname: string): Promise<void> {
+  if (!confirm(t(zustand.sprache, "sicherung_einspielen_bestaetigen"))) return;
+  const passphrase = document.querySelector<HTMLInputElement>("#f-sicherung-passphrase")?.value ?? "";
+  const pfad = await pfadJoin(sicherungOrdner, dateiname);
+  await sicherungEinspielen(pfad, passphrase);
+  closeModal();
+  zeigeMeldung(t(zustand.sprache, "sicherung_eingespielt_neu_starten"));
+}
+
 // ---------- Platzhalter für kommende Phasen ----------
 
 function renderPlatzhalter(): string {
@@ -2564,6 +2713,8 @@ function renderInhalt(): string {
       return renderStunden();
     case "benutzer":
       return renderBenutzer();
+    case "sicherung":
+      return renderSicherung();
     default:
       return renderPlatzhalter();
   }
@@ -2647,6 +2798,7 @@ function einrichten(): void {
     const aktion = aktionBtn.dataset.aktion;
     const nr = aktionBtn.dataset.nr;
     const id = aktionBtn.dataset.id;
+    const datei = aktionBtn.dataset.datei;
 
     switch (aktion) {
       case "konto-neu":
@@ -2842,6 +2994,24 @@ function einrichten(): void {
       case "benutzer-speichern":
         void benutzerSpeichernAktion(id ?? "");
         break;
+      case "sicherung-ordner-waehlen":
+        void sicherungOrdnerWaehlen();
+        break;
+      case "sicherung-jetzt":
+        sicherungPassphraseFormular("erstellen");
+        break;
+      case "sicherung-erstellen-bestaetigen":
+        void sicherungErstellenBestaetigen();
+        break;
+      case "sicherung-wiederherstellen":
+        if (datei) sicherungPassphraseFormular("wiederherstellen", datei);
+        break;
+      case "sicherung-vorschau-anzeigen":
+        if (datei) void sicherungVorschauAnzeigen(datei);
+        break;
+      case "sicherung-einspielen-bestaetigen":
+        if (datei) void sicherungEinspielenBestaetigen(datei);
+        break;
     }
   });
 
@@ -2849,6 +3019,10 @@ function einrichten(): void {
     const ziel = ereignis.target as HTMLElement;
     if (ziel.closest("[data-aktion='buchung-konto-geaendert']")) {
       buchungKontoGeaendert();
+    }
+    const sicherungIntervallSelect = ziel.closest<HTMLSelectElement>("[data-aktion='sicherung-intervall-geaendert']");
+    if (sicherungIntervallSelect) {
+      void sicherungIntervallGeaendert(sicherungIntervallSelect.value as BackupIntervall);
     }
     const belegDatei = ziel.closest<HTMLInputElement>("[data-aktion='beleg-datei-gewaehlt']");
     if (belegDatei && belegDatei.files?.length) {
@@ -3051,6 +3225,7 @@ async function appStarten(): Promise<void> {
     zuschlagsregeln: [],
   };
   await datenNeuLaden();
+  if (repo.modus === "tauri") await sicherungEinstellungenLaden();
   render();
 }
 
