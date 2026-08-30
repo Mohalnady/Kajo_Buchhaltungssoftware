@@ -241,6 +241,9 @@ const de: Woerterbuch = {
   rolle_buchhalter: "Buchhalter",
   rolle_mitarbeiter: "Mitarbeiter",
   rolle_steuerberater: "Steuerberater",
+  benutzerkonto_verknuepfen: "Benutzerkonto verknüpfen",
+  kein_mitarbeiter_verknuepft: "Ihr Zugang ist noch keinem Mitarbeiterdatensatz zugeordnet. Bitte den Inhaber bitten, die Verknüpfung anzulegen.",
+  ohne_verknuepfung: "— ohne Benutzerkonto —",
 };
 
 const en: Woerterbuch = {
@@ -473,6 +476,9 @@ const en: Woerterbuch = {
   rolle_buchhalter: "Bookkeeper",
   rolle_mitarbeiter: "Employee",
   rolle_steuerberater: "Tax advisor",
+  benutzerkonto_verknuepfen: "Link user account",
+  kein_mitarbeiter_verknuepft: "Your account isn't linked to an employee record yet. Ask the owner to set up the link.",
+  ohne_verknuepfung: "— no user account —",
 };
 
 const ar: Woerterbuch = {
@@ -705,6 +711,9 @@ const ar: Woerterbuch = {
   rolle_buchhalter: "المحاسب",
   rolle_mitarbeiter: "الموظف",
   rolle_steuerberater: "المستشار الضريبي",
+  benutzerkonto_verknuepfen: "ربط حساب مستخدم",
+  kein_mitarbeiter_verknuepft: "حسابك غير مرتبط بعد بسجل موظف. يرجى مطالبة المالك بإعداد الربط.",
+  ohne_verknuepfung: "— بدون حساب مستخدم —",
 };
 
 export const WOERTERBUECHER: Record<Sprache, Woerterbuch> = { de, en, ar };

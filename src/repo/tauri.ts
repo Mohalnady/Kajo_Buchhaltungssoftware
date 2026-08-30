@@ -366,9 +366,15 @@ export function erstelleTauriDatenquelle(db: Database, mandantId: string): Daten
 
     async mitarbeiterListe() {
       const zeilen = await db.select<(Omit<Mitarbeiter, "aktiv"> & { aktiv: number })[]>(
-        "SELECT id, name, personalnr, rolle, beschaeftigungsart, eintritt, austritt, stundenlohn, wochenstunden, urlaubstage_jahr, aktiv FROM mitarbeiter ORDER BY name",
+        "SELECT id, name, personalnr, rolle, beschaeftigungsart, eintritt, austritt, stundenlohn, wochenstunden, urlaubstage_jahr, aktiv, benutzer_id FROM mitarbeiter ORDER BY name",
       );
-      return zeilen.map((z) => ({ ...z, personalnr: z.personalnr ?? undefined, austritt: z.austritt ?? undefined, aktiv: z.aktiv === 1 }));
+      return zeilen.map((z) => ({
+        ...z,
+        personalnr: z.personalnr ?? undefined,
+        austritt: z.austritt ?? undefined,
+        benutzer_id: z.benutzer_id ?? undefined,
+        aktiv: z.aktiv === 1,
+      }));
     },
 
     async mitarbeiterSpeichern(mitarbeiter) {
@@ -384,17 +390,18 @@ export function erstelleTauriDatenquelle(db: Database, mandantId: string): Daten
         mitarbeiter.wochenstunden,
         mitarbeiter.urlaubstage_jahr,
         mitarbeiter.aktiv ? 1 : 0,
+        mitarbeiter.benutzer_id ?? null,
       ];
       if (vorhanden.length) {
         await db.execute(
           `UPDATE mitarbeiter SET name=$2, personalnr=$3, rolle=$4, beschaeftigungsart=$5, eintritt=$6, austritt=$7,
-             stundenlohn=$8, wochenstunden=$9, urlaubstage_jahr=$10, aktiv=$11 WHERE id=$1`,
+             stundenlohn=$8, wochenstunden=$9, urlaubstage_jahr=$10, aktiv=$11, benutzer_id=$12 WHERE id=$1`,
           [mitarbeiter.id, ...werte],
         );
       } else {
         await db.execute(
-          `INSERT INTO mitarbeiter (id, name, personalnr, rolle, beschaeftigungsart, eintritt, austritt, stundenlohn, wochenstunden, urlaubstage_jahr, aktiv)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+          `INSERT INTO mitarbeiter (id, name, personalnr, rolle, beschaeftigungsart, eintritt, austritt, stundenlohn, wochenstunden, urlaubstage_jahr, aktiv, benutzer_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
           [mitarbeiter.id, ...werte],
         );
       }

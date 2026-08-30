@@ -118,6 +118,7 @@ export interface Mitarbeiter {
   wochenstunden: number;
   urlaubstage_jahr: number;
   aktiv: boolean;
+  benutzer_id?: string; // verknüpft mit benutzer.id in der zentralen kontor.db, für "eigene Stunden erfassen"
 }
 
 export type ZeiteintragArt = "arbeit" | "urlaub" | "krank" | "feiertag" | "frei";

@@ -48,6 +48,17 @@ import { monatsReihe } from "./lib/diagramme.ts";
 import { buchungenDesMonats, paketEintraege } from "./lib/monatspaket.ts";
 import { feiertageNrw, istFeiertag } from "./lib/feiertage.ts";
 import { berechneStunden, bruttolohnFuerEintrag, standardZuschlagsregeln, warnungZehnStunden } from "./lib/stunden.ts";
+import {
+  auswertungenZugriff,
+  buchungenZugriff,
+  darfEigeneStundenErfassen,
+  darfFirmenUndBackupVerwalten,
+  darfFremdeStundenSehen,
+  darfStundenFreigeben,
+  mitarbeiterUndLoehneZugriff,
+  stammdatenZugriff,
+  standardTab,
+} from "./lib/rechte.ts";
 import { zipSync, type Zippable } from "fflate";
 
 // P1-Grundgerüst: Navigation und Design aus dem Prototyp (referenz/prototyp.html),
@@ -148,6 +159,7 @@ interface Zustand {
   repo: Datenquelle;
   benutzer: Benutzer;
   benutzerListe: Benutzer[];
+  kannBuchungenBearbeiten: boolean;
   konten: Konto[];
   kostenstellen: Kostenstelle[];
   buchungen: Buchung[];
@@ -225,16 +237,57 @@ function renderSprachSchalter(aktuelleSprache: Sprache): string {
   ).join("")}</div>`;
 }
 
+/** Sichtbarkeit einzelner Nav-Ziele nach der Rechtetabelle aus SPEC.md Abschnitt 8. */
+function navZielSichtbar(key: string, rolle: Rolle): boolean {
+  switch (key) {
+    case "dashboard":
+    case "buchungen":
+    case "kasse":
+    case "gutscheine":
+      return buchungenZugriff(rolle) !== "kein";
+    case "bwa":
+    case "euer":
+    case "ustva":
+    case "berichte":
+    case "diagramme":
+      return auswertungenZugriff(rolle) !== "kein";
+    case "mitarbeiter":
+      return mitarbeiterUndLoehneZugriff(rolle) !== "kein";
+    case "stunden":
+      return darfEigeneStundenErfassen(rolle) || darfFremdeStundenSehen(rolle);
+    case "konten":
+    case "kostenstellen":
+    case "datenimport":
+    case "belegablage":
+    case "einstellungen":
+      return stammdatenZugriff(rolle) !== "kein";
+    case "mandanten":
+    case "benutzer":
+    case "sicherung":
+      return darfFirmenUndBackupVerwalten(rolle);
+    default:
+      return true;
+  }
+}
+
+/** Nav-Einträge für die aktuelle Rolle, ohne Trenner über leeren Abschnitten. */
+function navEintraegeFuerRolle(rolle: Rolle): NavEintrag[] {
+  const gefiltert = NAV.filter((e) => e.typ === "trenner" || navZielSichtbar(e.key, rolle));
+  return gefiltert.filter((eintrag, i) => eintrag.typ !== "trenner" || gefiltert[i + 1]?.typ === "ziel");
+}
+
 function renderNav(): string {
-  return NAV.map((eintrag) => {
-    if (eintrag.typ === "trenner") {
-      return `<div class="navsep">${t(zustand.sprache, eintrag.label)}</div>`;
-    }
-    return `<button class="navbtn ${zustand.tab === eintrag.key ? "on" : ""}" data-tab="${eintrag.key}">
+  return navEintraegeFuerRolle(zustand.benutzer.rolle)
+    .map((eintrag) => {
+      if (eintrag.typ === "trenner") {
+        return `<div class="navsep">${t(zustand.sprache, eintrag.label)}</div>`;
+      }
+      return `<button class="navbtn ${zustand.tab === eintrag.key ? "on" : ""}" data-tab="${eintrag.key}">
       ${icon(eintrag.icon)}<span>${t(zustand.sprache, eintrag.label)}</span>
       ${eintrag.phase ? `<span class="k">${eintrag.phase}</span>` : ""}
     </button>`;
-  }).join("");
+    })
+    .join("");
 }
 
 function aktuellerNavEintrag() {
@@ -540,7 +593,9 @@ function renderGutscheine(): string {
   return (
     topbarTitel(
       t(zustand.sprache, "nav_gutscheine"),
-      `<button class="btn" data-aktion="gutschein-ausgeben-neu">${icon("plus")}${t(zustand.sprache, "gutschein_ausgeben")}</button>`,
+      zustand.kannBuchungenBearbeiten
+        ? `<button class="btn" data-aktion="gutschein-ausgeben-neu">${icon("plus")}${t(zustand.sprache, "gutschein_ausgeben")}</button>`
+        : "",
     ) +
     `<div class="card">${
       sortiert.length
@@ -563,7 +618,7 @@ function renderGutscheine(): string {
                   <td class="num"><b>${formatEur(offenerBetrag(g))}</b></td>
                   <td><span class="pill ${GUTSCHEIN_STATUS_PILL[g.status]}">${t(zustand.sprache, GUTSCHEIN_STATUS_LABEL[g.status])}</span></td>
                   <td style="text-align:end">
-                    ${g.status !== "eingeloest" ? `<button class="btn ghost sm" data-aktion="gutschein-einloesen-neu" data-id="${escapeHtml(g.id ?? "")}">${t(zustand.sprache, "gutschein_einloesen")}</button>` : ""}
+                    ${g.status !== "eingeloest" && zustand.kannBuchungenBearbeiten ? `<button class="btn ghost sm" data-aktion="gutschein-einloesen-neu" data-id="${escapeHtml(g.id ?? "")}">${t(zustand.sprache, "gutschein_einloesen")}</button>` : ""}
                   </td>
                 </tr>`,
               )
@@ -679,8 +734,12 @@ function buchungsTabelle(liste: Buchung[]): string {
           <td class="num">${b.ust_satz} %</td>
           <td style="text-align:end;white-space:nowrap">
             <button class="btn ghost sm" data-aktion="buchung-belege" data-id="${escapeHtml(b.id)}">${icon("clip")}</button>
-            <button class="btn ghost sm" data-aktion="buchung-bearbeiten" data-id="${escapeHtml(b.id)}">${icon("edit")}</button>
-            <button class="btn danger sm" data-aktion="buchung-loeschen" data-id="${escapeHtml(b.id)}">${icon("trash")}</button>
+            ${
+              zustand.kannBuchungenBearbeiten
+                ? `<button class="btn ghost sm" data-aktion="buchung-bearbeiten" data-id="${escapeHtml(b.id)}">${icon("edit")}</button>
+            <button class="btn danger sm" data-aktion="buchung-loeschen" data-id="${escapeHtml(b.id)}">${icon("trash")}</button>`
+                : ""
+            }
           </td>
         </tr>`;
       })
@@ -694,7 +753,9 @@ function renderBuchungen(): string {
   return (
     topbarTitel(
       t(zustand.sprache, "buch"),
-      `<button class="btn" data-aktion="buchung-neu">${icon("plus")}${t(zustand.sprache, "addb")}</button>`,
+      zustand.kannBuchungenBearbeiten
+        ? `<button class="btn" data-aktion="buchung-neu">${icon("plus")}${t(zustand.sprache, "addb")}</button>`
+        : "",
     ) +
     `<div class="card">${buchungsTabelle(sortiert)}
       <div class="row" style="margin-top:14px;justify-content:flex-end;gap:24px">
@@ -1884,6 +1945,7 @@ function mitarbeiterFormular(id?: string): void {
     wochenstunden: 0,
     urlaubstage_jahr: 20,
     aktiv: true,
+    benutzer_id: undefined as string | undefined,
   };
   openModal(`
     <div class="mhead"><h2 style="margin:0">${id ? t(zustand.sprache, "edit") : t(zustand.sprache, "neu")}</h2>
@@ -1911,7 +1973,14 @@ function mitarbeiterFormular(id?: string): void {
       <div><label class="f">${t(zustand.sprache, "urlaubstage_jahr")}</label><input id="f-urlaubstage" value="${m.urlaubstage_jahr || ""}" placeholder="20"></div>
     </div>
     <div class="row" style="margin-top:12px">
-      <label class="f" style="display:flex;align-items:center;gap:8px;cursor:pointer">
+      <div><label class="f">${t(zustand.sprache, "benutzerkonto_verknuepfen")}</label>
+        <select id="f-benutzer-verknuepfung">
+          <option value="">${t(zustand.sprache, "ohne_verknuepfung")}</option>
+          ${zustand.benutzerListe
+            .map((b) => `<option value="${escapeHtml(b.id)}" ${m.benutzer_id === b.id ? "selected" : ""}>${escapeHtml(b.name)}</option>`)
+            .join("")}
+        </select></div>
+      <label class="f" style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:24px">
         <input type="checkbox" id="f-aktiv" ${m.aktiv ? "checked" : ""}> ${t(zustand.sprache, "aktiv")}
       </label>
     </div>
@@ -1941,6 +2010,7 @@ async function mitarbeiterSpeichern(id: string): Promise<void> {
     wochenstunden: parseNumber(document.querySelector<HTMLInputElement>("#f-wochenstunden")?.value),
     urlaubstage_jahr: Math.round(parseNumber(document.querySelector<HTMLInputElement>("#f-urlaubstage")?.value)),
     aktiv: document.querySelector<HTMLInputElement>("#f-aktiv")?.checked ?? true,
+    benutzer_id: document.querySelector<HTMLSelectElement>("#f-benutzer-verknuepfung")?.value || undefined,
   });
   await datenNeuLaden();
   closeModal();
@@ -2017,14 +2087,27 @@ function renderZuschlagsregeln(): string {
 
 function renderStunden(): string {
   if (!stundenMonat) stundenMonat = heutigerMonat();
-  if (!stundenMitarbeiterId && zustand.mitarbeiter.length) stundenMitarbeiterId = zustand.mitarbeiter[0].id;
+  const istInhaberSicht = darfFremdeStundenSehen(zustand.benutzer.rolle);
+  const darfFreigeben = darfStundenFreigeben(zustand.benutzer.rolle);
 
-  const mitarbeiterAuswahl = `<select data-aktion="stunden-mitarbeiter-waehlen">
+  if (istInhaberSicht) {
+    if (!stundenMitarbeiterId && zustand.mitarbeiter.length) stundenMitarbeiterId = zustand.mitarbeiter[0].id;
+  } else {
+    stundenMitarbeiterId = zustand.mitarbeiter.find((m) => m.benutzer_id === zustand.benutzer.id)?.id ?? "";
+  }
+
+  const mitarbeiterAuswahl = istInhaberSicht
+    ? `<select data-aktion="stunden-mitarbeiter-waehlen">
     <option value="">${t(zustand.sprache, "mitarbeiter_waehlen")}</option>
     ${zustand.mitarbeiter
       .map((m) => `<option value="${escapeHtml(m.id)}" ${stundenMitarbeiterId === m.id ? "selected" : ""}>${escapeHtml(m.name)}</option>`)
       .join("")}
-  </select>`;
+  </select>`
+    : "";
+
+  if (!istInhaberSicht && !stundenMitarbeiterId) {
+    return topbarTitel(t(zustand.sprache, "std")) + `<div class="card"><div class="empty">${t(zustand.sprache, "kein_mitarbeiter_verknuepft")}</div></div>`;
+  }
 
   const mitarbeiter = zustand.mitarbeiter.find((m) => m.id === stundenMitarbeiterId);
   const eintraege = zustand.zeiteintraege
@@ -2056,9 +2139,9 @@ function renderStunden(): string {
               <td style="text-align:end;white-space:nowrap">
                 ${z.status === "entwurf" ? `<button class="btn ghost sm" data-aktion="zeiteintrag-bearbeiten" data-id="${z.id}">${icon("edit")}</button>` : ""}
                 ${z.status === "entwurf" ? `<button class="btn ghost sm" data-aktion="zeiteintrag-einreichen" data-id="${z.id}">${t(zustand.sprache, "einreichen")}</button>` : ""}
-                ${z.status === "eingereicht" ? `<button class="btn ghost sm" data-aktion="zeiteintrag-freigeben" data-id="${z.id}">${t(zustand.sprache, "freigeben")}</button>` : ""}
-                ${z.status === "eingereicht" ? `<button class="btn ghost sm" data-aktion="zeiteintrag-ablehnen" data-id="${z.id}">${t(zustand.sprache, "ablehnen")}</button>` : ""}
-                <button class="btn danger sm" data-aktion="zeiteintrag-loeschen" data-id="${z.id}">${icon("trash")}</button>
+                ${z.status === "eingereicht" && darfFreigeben ? `<button class="btn ghost sm" data-aktion="zeiteintrag-freigeben" data-id="${z.id}">${t(zustand.sprache, "freigeben")}</button>` : ""}
+                ${z.status === "eingereicht" && darfFreigeben ? `<button class="btn ghost sm" data-aktion="zeiteintrag-ablehnen" data-id="${z.id}">${t(zustand.sprache, "ablehnen")}</button>` : ""}
+                ${z.status === "entwurf" || z.status === "abgelehnt" ? `<button class="btn danger sm" data-aktion="zeiteintrag-loeschen" data-id="${z.id}">${icon("trash")}</button>` : ""}
               </td>
             </tr>`;
           })
@@ -2092,7 +2175,9 @@ function renderStunden(): string {
           : ""
       }
     </div>
-    <div class="card" style="margin-top:16px">
+    ${
+      darfFreigeben
+        ? `<div class="card" style="margin-top:16px">
       <div class="row" style="justify-content:space-between;align-items:center">
         <h2 style="margin:0">${t(zustand.sprache, "zuschlagsregeln_titel")}</h2>
         <div class="row fit" style="gap:8px">
@@ -2102,6 +2187,8 @@ function renderStunden(): string {
       </div>
       <div style="margin-top:12px">${renderZuschlagsregeln()}</div>
     </div>`
+        : ""
+    }`
   );
 }
 
@@ -2938,12 +3025,14 @@ function abmelden(): void {
 
 async function appStarten(): Promise<void> {
   const repo = await erstelleDatenquelle();
+  const benutzer = angemeldeterBenutzer!;
   zustand = {
-    tab: "dashboard",
+    tab: standardTab(benutzer.rolle),
     sprache: authSprache,
     repo,
-    benutzer: angemeldeterBenutzer!,
+    benutzer,
     benutzerListe: [],
+    kannBuchungenBearbeiten: buchungenZugriff(benutzer.rolle) === "voll",
     konten: [],
     kostenstellen: [],
     buchungen: [],
