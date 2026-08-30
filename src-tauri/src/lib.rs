@@ -1,3 +1,6 @@
+use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
+use argon2::Argon2;
+use rand_core::OsRng;
 use tauri_plugin_sql::{Migration, MigrationKind};
 
 // Migration der zentralen Datei kontor.db (Mandantenregister, Benutzer, globale
@@ -22,6 +25,52 @@ fn mandant_schema_sql() -> &'static str {
   include_str!("../migrations/mandant/0001_init.sql")
 }
 
+// Passwort-Hashing für die Benutzerverwaltung (SPEC.md Abschnitt 8: "Passwörter
+// mit Argon2 oder bcrypt"). Läuft bewusst in Rust statt im Frontend, damit die
+// eigentliche Kryptografie nicht von einer JS/WASM-Bibliothek im Webview abhängt.
+#[derive(serde::Serialize)]
+struct PasswortHash {
+  hash: String,
+  salt: String,
+}
+
+#[tauri::command]
+fn passwort_hashen(passwort: String) -> Result<PasswortHash, String> {
+  let salt = SaltString::generate(&mut OsRng);
+  let hash = Argon2::default()
+    .hash_password(passwort.as_bytes(), &salt)
+    .map_err(|e| e.to_string())?;
+  Ok(PasswortHash {
+    hash: hash.to_string(),
+    salt: salt.to_string(),
+  })
+}
+
+#[tauri::command]
+fn passwort_pruefen(passwort: String, hash: String) -> Result<bool, String> {
+  let geparst = PasswordHash::new(&hash).map_err(|e| e.to_string())?;
+  Ok(Argon2::default().verify_password(passwort.as_bytes(), &geparst).is_ok())
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn hash_und_pruefung_runden_korrekt() {
+    let ergebnis = passwort_hashen("sehr-geheim".into()).expect("hashen darf nicht scheitern");
+    assert!(passwort_pruefen("sehr-geheim".into(), ergebnis.hash.clone()).unwrap());
+    assert!(!passwort_pruefen("falsches-passwort".into(), ergebnis.hash).unwrap());
+  }
+
+  #[test]
+  fn zwei_hashes_desselben_passworts_unterscheiden_sich() {
+    let a = passwort_hashen("gleiches-passwort".into()).unwrap();
+    let b = passwort_hashen("gleiches-passwort".into()).unwrap();
+    assert_ne!(a.hash, b.hash, "unterschiedliches Salt muss unterschiedliche Hashes ergeben");
+  }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
@@ -31,7 +80,11 @@ pub fn run() {
         .build(),
     )
     .plugin(tauri_plugin_fs::init())
-    .invoke_handler(tauri::generate_handler![mandant_schema_sql])
+    .invoke_handler(tauri::generate_handler![
+      mandant_schema_sql,
+      passwort_hashen,
+      passwort_pruefen
+    ])
     .setup(|app| {
       if cfg!(debug_assertions) {
         app.handle().plugin(
