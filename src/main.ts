@@ -42,7 +42,7 @@ import { join as pfadJoin } from "@tauri-apps/api/path";
 import { open as ordnerWaehlen } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { readFile } from "@tauri-apps/plugin-fs";
-import type { Datenquelle } from "./repo/typen.ts";
+import type { Datenquelle, MandantEinstellungen } from "./repo/typen.ts";
 import { formatVonDateiname, inhaltEinlesen } from "./lib/dateiimport.ts";
 import { spaltenErkennen, type DublettenKandidat, type ImportFeld } from "./lib/import-parser.ts";
 import { zeileZuKandidat, type ImportKandidat } from "./lib/importkandidaten.ts";
@@ -176,6 +176,8 @@ interface Zustand {
   kleinunternehmer: boolean;
   versteuerung: "ist" | "soll";
   voranmeldung: "monatlich" | "quartalsweise" | "jaehrlich";
+  firmenprofil: MandantEinstellungen;
+  logoObjectUrl: string | null;
   gutscheinSumme: number;
   kassenKonto: "1000" | "1210";
   importregeln: Importregel[];
@@ -211,6 +213,10 @@ async function datenNeuLaden(): Promise<void> {
   zustand.kleinunternehmer = einstellungen.kleinunternehmer;
   zustand.versteuerung = einstellungen.versteuerung;
   zustand.voranmeldung = einstellungen.voranmeldung;
+  zustand.firmenprofil = einstellungen;
+  const logoBlob = await zustand.repo.logoInhalt();
+  if (zustand.logoObjectUrl) URL.revokeObjectURL(zustand.logoObjectUrl);
+  zustand.logoObjectUrl = logoBlob ? URL.createObjectURL(logoBlob) : null;
   zustand.gutscheinSumme = offeneGutscheinSumme(gutscheine);
   zustand.importregeln = importregeln;
   zustand.importlaeufe = importlaeufe;
@@ -2749,6 +2755,140 @@ async function googleDriveAktivGeaendert(aktiv: boolean): Promise<void> {
   await einstellungSchreiben("google_drive_aktiv", aktiv ? "1" : "0");
 }
 
+// ---------- Firmenprofil (Einstellungen und Erstinbetriebnahme-Assistent) ----------
+
+function firmenprofilFelder(p: MandantEinstellungen): string {
+  return `
+    <div class="row">
+      <div style="flex:2"><label class="f">${t(zustand.sprache, "firma")}</label><input id="f-firma-firma" value="${escapeHtml(p.firma)}"></div>
+      <div style="flex:1"><label class="f">${t(zustand.sprache, "inhaber")}</label><input id="f-firma-inhaber" value="${escapeHtml(p.inhaber)}"></div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <div style="flex:2"><label class="f">${t(zustand.sprache, "strasse")}</label><input id="f-firma-strasse" value="${escapeHtml(p.strasse)}"></div>
+      <div style="flex:1"><label class="f">${t(zustand.sprache, "plz")}</label><input id="f-firma-plz" value="${escapeHtml(p.plz)}"></div>
+      <div style="flex:1"><label class="f">${t(zustand.sprache, "ort")}</label><input id="f-firma-ort" value="${escapeHtml(p.ort)}"></div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <div><label class="f">${t(zustand.sprache, "stnr")}</label><input id="f-firma-stnr" value="${escapeHtml(p.stnr)}"></div>
+      <div><label class="f">${t(zustand.sprache, "ustid")}</label><input id="f-firma-ustid" value="${escapeHtml(p.ustid)}"></div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <div><label class="f">${t(zustand.sprache, "tel")}</label><input id="f-firma-tel" value="${escapeHtml(p.tel)}"></div>
+      <div><label class="f">${t(zustand.sprache, "mail")}</label><input id="f-firma-mail" value="${escapeHtml(p.mail)}"></div>
+    </div>
+    <div class="row" style="margin-top:12px;align-items:flex-end">
+      <div><label class="f">${t(zustand.sprache, "kassenanfangsbestand")}</label><input type="number" step="0.01" id="f-firma-kasse" value="${p.kassenAnfangsbestand}"></div>
+      <div><label class="f">${t(zustand.sprache, "versteuerung")}</label>
+        <select id="f-firma-versteuerung">
+          <option value="ist" ${p.versteuerung === "ist" ? "selected" : ""}>${t(zustand.sprache, "versteuerung_ist")}</option>
+          <option value="soll" ${p.versteuerung === "soll" ? "selected" : ""}>${t(zustand.sprache, "versteuerung_soll")}</option>
+        </select>
+      </div>
+      <div><label class="f">${t(zustand.sprache, "voranmeldung")}</label>
+        <select id="f-firma-voranmeldung">
+          ${(["monatlich", "quartalsweise", "jaehrlich"] as const)
+            .map((x) => `<option value="${x}" ${p.voranmeldung === x ? "selected" : ""}>${t(zustand.sprache, `intervall_${x}`)}</option>`)
+            .join("")}
+        </select>
+      </div>
+    </div>
+    <label class="row" style="margin-top:12px;align-items:center;gap:8px">
+      <input type="checkbox" id="f-firma-kleinunternehmer" ${p.kleinunternehmer ? "checked" : ""}>
+      <span>${t(zustand.sprache, "kleinunternehmer_label")}</span>
+    </label>
+    <div style="margin-top:16px">
+      <label class="f">${t(zustand.sprache, "logo")}</label>
+      <div class="row" style="align-items:center;gap:12px">
+        ${zustand.logoObjectUrl ? `<img src="${zustand.logoObjectUrl}" alt="Logo" style="height:48px;max-width:160px;object-fit:contain">` : `<span class="hint">${t(zustand.sprache, "kein_logo")}</span>`}
+        <input type="file" accept="image/png,image/jpeg,image/svg+xml" data-aktion="logo-datei-gewaehlt">
+        ${zustand.logoObjectUrl ? `<button class="btn ghost sm fit" data-aktion="logo-entfernen">${t(zustand.sprache, "logo_entfernen")}</button>` : ""}
+      </div>
+    </div>
+  `;
+}
+
+function firmenprofilAusFormular(bisherigesLogoPfad: string | null): MandantEinstellungen {
+  return {
+    firma: document.querySelector<HTMLInputElement>("#f-firma-firma")?.value.trim() ?? "",
+    inhaber: document.querySelector<HTMLInputElement>("#f-firma-inhaber")?.value.trim() ?? "",
+    strasse: document.querySelector<HTMLInputElement>("#f-firma-strasse")?.value.trim() ?? "",
+    plz: document.querySelector<HTMLInputElement>("#f-firma-plz")?.value.trim() ?? "",
+    ort: document.querySelector<HTMLInputElement>("#f-firma-ort")?.value.trim() ?? "",
+    land: "DE",
+    stnr: document.querySelector<HTMLInputElement>("#f-firma-stnr")?.value.trim() ?? "",
+    ustid: document.querySelector<HTMLInputElement>("#f-firma-ustid")?.value.trim() ?? "",
+    tel: document.querySelector<HTMLInputElement>("#f-firma-tel")?.value.trim() ?? "",
+    mail: document.querySelector<HTMLInputElement>("#f-firma-mail")?.value.trim() ?? "",
+    logoPfad: bisherigesLogoPfad,
+    kassenAnfangsbestand: parseNumber(document.querySelector<HTMLInputElement>("#f-firma-kasse")?.value ?? "0"),
+    kleinunternehmer: document.querySelector<HTMLInputElement>("#f-firma-kleinunternehmer")?.checked ?? false,
+    versteuerung: (document.querySelector<HTMLSelectElement>("#f-firma-versteuerung")?.value as MandantEinstellungen["versteuerung"]) ?? "ist",
+    voranmeldung: (document.querySelector<HTMLSelectElement>("#f-firma-voranmeldung")?.value as MandantEinstellungen["voranmeldung"]) ?? "monatlich",
+  };
+}
+
+async function logoDateiGewaehlt(dateien: FileList): Promise<void> {
+  const datei = dateien[0];
+  if (!datei) return;
+  const inhalt = new Uint8Array(await datei.arrayBuffer());
+  await zustand.repo.logoSpeichern({ dateiname: datei.name, mime: datei.type, inhalt });
+  await datenNeuLaden();
+  render();
+}
+
+async function logoEntfernenAktion(): Promise<void> {
+  await zustand.repo.logoEntfernen();
+  await datenNeuLaden();
+  render();
+}
+
+function renderEinstellungen(): string {
+  return (
+    topbarTitel(t(zustand.sprache, "einst")) +
+    `<div class="card">${firmenprofilFelder(zustand.firmenprofil)}
+      <div class="row" style="margin-top:20px;justify-content:flex-end">
+        <button class="btn fit" data-aktion="firmenprofil-speichern">${t(zustand.sprache, "save")}</button>
+      </div>
+    </div>`
+  );
+}
+
+async function firmenprofilSpeichernAktion(): Promise<void> {
+  const profil = firmenprofilAusFormular(zustand.firmenprofil.logoPfad);
+  await zustand.repo.mandantEinstellungenSpeichern(profil);
+  await datenNeuLaden();
+  render();
+  zeigeMeldung(t(zustand.sprache, "gespeichert"));
+}
+
+function renderErstinbetriebnahme(): string {
+  return `
+    <div class="card" style="max-width:640px;margin:40px auto">
+      <h1 style="margin-top:0">${t(zustand.sprache, "erstinbetriebnahme_titel")}</h1>
+      <p class="hint">${t(zustand.sprache, "erstinbetriebnahme_hinweis")}</p>
+      ${firmenprofilFelder(zustand.firmenprofil)}
+      <div class="row" style="margin-top:20px;justify-content:flex-end">
+        <button class="btn ghost fit" data-aktion="erstinbetriebnahme-ueberspringen">${t(zustand.sprache, "erstinbetriebnahme_ueberspringen")}</button>
+        <button class="btn fit" data-aktion="erstinbetriebnahme-abschliessen">${t(zustand.sprache, "erstinbetriebnahme_abschliessen")}</button>
+      </div>
+    </div>`;
+}
+
+async function erstinbetriebnahmeAbschliessenAktion(): Promise<void> {
+  const profil = firmenprofilAusFormular(zustand.firmenprofil.logoPfad);
+  await zustand.repo.mandantEinstellungenSpeichern(profil);
+  await zustand.repo.erstinbetriebnahmeAbschliessen();
+  await datenNeuLaden();
+  appPhase = "app";
+  render();
+}
+
+async function erstinbetriebnahmeUeberspringenAktion(): Promise<void> {
+  await zustand.repo.erstinbetriebnahmeAbschliessen();
+  appPhase = "app";
+  render();
+}
+
 // ---------- Platzhalter für kommende Phasen ----------
 
 function renderPlatzhalter(): string {
@@ -2798,6 +2938,8 @@ function renderInhalt(): string {
       return renderBenutzer();
     case "sicherung":
       return renderSicherung();
+    case "einstellungen":
+      return renderEinstellungen();
     default:
       return renderPlatzhalter();
   }
@@ -2822,10 +2964,17 @@ function render(): void {
   const app = document.querySelector<HTMLDivElement>("#app");
   if (!app) return;
 
-  if (appPhase !== "app") {
+  if (appPhase === "ersteinrichtung" || appPhase === "login") {
     document.documentElement.dir = SPRACHEN.find((s) => s.code === authSprache)?.rtl ? "rtl" : "ltr";
     document.documentElement.lang = authSprache;
     app.innerHTML = appPhase === "ersteinrichtung" ? renderErsteinrichtung() : renderLogin();
+    return;
+  }
+
+  if (appPhase === "erstinbetriebnahme") {
+    document.documentElement.dir = SPRACHEN.find((s) => s.code === zustand.sprache)?.rtl ? "rtl" : "ltr";
+    document.documentElement.lang = zustand.sprache;
+    app.innerHTML = renderErstinbetriebnahme();
     return;
   }
 
@@ -3104,6 +3253,18 @@ function einrichten(): void {
       case "google-drive-trennen":
         void googleDriveTrennenAktion();
         break;
+      case "firmenprofil-speichern":
+        void firmenprofilSpeichernAktion();
+        break;
+      case "logo-entfernen":
+        void logoEntfernenAktion();
+        break;
+      case "erstinbetriebnahme-abschliessen":
+        void erstinbetriebnahmeAbschliessenAktion();
+        break;
+      case "erstinbetriebnahme-ueberspringen":
+        void erstinbetriebnahmeUeberspringenAktion();
+        break;
     }
   });
 
@@ -3119,6 +3280,11 @@ function einrichten(): void {
     const googleDriveAktivBox = ziel.closest<HTMLInputElement>("[data-aktion='google-drive-aktiv-geaendert']");
     if (googleDriveAktivBox) {
       void googleDriveAktivGeaendert(googleDriveAktivBox.checked);
+    }
+    const logoDatei = ziel.closest<HTMLInputElement>("[data-aktion='logo-datei-gewaehlt']");
+    if (logoDatei && logoDatei.files?.length) {
+      void logoDateiGewaehlt(logoDatei.files);
+      logoDatei.value = "";
     }
     const belegDatei = ziel.closest<HTMLInputElement>("[data-aktion='beleg-datei-gewaehlt']");
     if (belegDatei && belegDatei.files?.length) {
@@ -3221,7 +3387,7 @@ function einrichten(): void {
 // eigene zentrale Datenbank hat. Im echten Tauri-Fenster steht vor der
 // eigentlichen App immer Ersteinrichtung (kein Benutzer vorhanden) oder Login.
 
-type AppPhase = "ersteinrichtung" | "login" | "app";
+type AppPhase = "ersteinrichtung" | "login" | "erstinbetriebnahme" | "app";
 let appPhase: AppPhase = "app";
 let authSprache: Sprache = "de";
 let angemeldeterBenutzer: Benutzer | null = null;
@@ -3311,6 +3477,24 @@ async function appStarten(): Promise<void> {
     kleinunternehmer: false,
     versteuerung: "ist",
     voranmeldung: "monatlich",
+    firmenprofil: {
+      firma: "",
+      inhaber: "",
+      strasse: "",
+      plz: "",
+      ort: "",
+      land: "DE",
+      stnr: "",
+      ustid: "",
+      tel: "",
+      mail: "",
+      logoPfad: null,
+      kassenAnfangsbestand: 0,
+      kleinunternehmer: false,
+      versteuerung: "ist",
+      voranmeldung: "monatlich",
+    },
+    logoObjectUrl: null,
     gutscheinSumme: 0,
     kassenKonto: "1000",
     importregeln: [],
@@ -3321,7 +3505,12 @@ async function appStarten(): Promise<void> {
     zuschlagsregeln: [],
   };
   await datenNeuLaden();
-  if (repo.modus === "tauri") await sicherungEinstellungenLaden();
+  if (repo.modus === "tauri") {
+    await sicherungEinstellungenLaden();
+    if (!(await repo.erstinbetriebnahmeAbgeschlossen())) {
+      appPhase = "erstinbetriebnahme";
+    }
+  }
   render();
 }
 

@@ -10,8 +10,8 @@ import type { Gutschein } from "../lib/gutschein.ts";
 import { offenerBetrag, statusNachEinloesung } from "../lib/gutschein.ts";
 import { round2 } from "../lib/numbers.ts";
 import { uid } from "../lib/uid.ts";
-import { belegeOrdner, dokumenteOrdner } from "../db/pfade.ts";
-import type { Datenquelle, LoeschErgebnis, MandantEinstellungen } from "./typen.ts";
+import { belegeOrdner, dokumenteOrdner, logoOrdner } from "../db/pfade.ts";
+import type { Datenquelle, LoeschErgebnis, MandantEinstellungen, NeuesLogo } from "./typen.ts";
 
 interface KontoZeile {
   nr: string;
@@ -52,15 +52,115 @@ export function erstelleTauriDatenquelle(db: Database, mandantId: string): Daten
 
     async mandantEinstellungen(): Promise<MandantEinstellungen> {
       const zeilen = await db.select<
-        { kassen_anfangsbestand: number; kleinunternehmer: number; versteuerung: "ist" | "soll"; voranmeldung: MandantEinstellungen["voranmeldung"] }[]
-      >("SELECT kassen_anfangsbestand, kleinunternehmer, versteuerung, voranmeldung FROM mandant LIMIT 1");
+        {
+          firma: string;
+          inhaber: string;
+          strasse: string;
+          plz: string;
+          ort: string;
+          land: string;
+          stnr: string;
+          ustid: string;
+          tel: string;
+          mail: string;
+          logo_pfad: string | null;
+          kassen_anfangsbestand: number;
+          kleinunternehmer: number;
+          versteuerung: "ist" | "soll";
+          voranmeldung: MandantEinstellungen["voranmeldung"];
+        }[]
+      >(
+        "SELECT firma, inhaber, strasse, plz, ort, land, stnr, ustid, tel, mail, logo_pfad, kassen_anfangsbestand, kleinunternehmer, versteuerung, voranmeldung FROM mandant LIMIT 1",
+      );
       const z = zeilen[0];
       return {
+        firma: z?.firma ?? "",
+        inhaber: z?.inhaber ?? "",
+        strasse: z?.strasse ?? "",
+        plz: z?.plz ?? "",
+        ort: z?.ort ?? "",
+        land: z?.land ?? "DE",
+        stnr: z?.stnr ?? "",
+        ustid: z?.ustid ?? "",
+        tel: z?.tel ?? "",
+        mail: z?.mail ?? "",
+        logoPfad: z?.logo_pfad ?? null,
         kassenAnfangsbestand: z?.kassen_anfangsbestand ?? 0,
         kleinunternehmer: z?.kleinunternehmer === 1,
         versteuerung: z?.versteuerung ?? "ist",
         voranmeldung: z?.voranmeldung ?? "monatlich",
       };
+    },
+
+    async mandantEinstellungenSpeichern(profil: MandantEinstellungen): Promise<void> {
+      await db.execute(
+        `UPDATE mandant SET firma = $1, inhaber = $2, strasse = $3, plz = $4, ort = $5, land = $6,
+          stnr = $7, ustid = $8, tel = $9, mail = $10, kassen_anfangsbestand = $11,
+          kleinunternehmer = $12, versteuerung = $13, voranmeldung = $14`,
+        [
+          profil.firma,
+          profil.inhaber,
+          profil.strasse,
+          profil.plz,
+          profil.ort,
+          profil.land,
+          profil.stnr,
+          profil.ustid,
+          profil.tel,
+          profil.mail,
+          profil.kassenAnfangsbestand,
+          profil.kleinunternehmer ? 1 : 0,
+          profil.versteuerung,
+          profil.voranmeldung,
+        ],
+      );
+    },
+
+    async logoSpeichern(logo: NeuesLogo): Promise<void> {
+      const ordner = await logoOrdner(mandantId);
+      await mkdir(ordner, { recursive: true });
+      const endung = logo.dateiname.includes(".") ? logo.dateiname.slice(logo.dateiname.lastIndexOf(".")) : "";
+      const pfad = await join(ordner, `logo${endung}`);
+      await writeFile(pfad, logo.inhalt);
+      await db.execute("UPDATE mandant SET logo_pfad = $1", [pfad]);
+    },
+
+    async logoEntfernen(): Promise<void> {
+      const zeilen = await db.select<{ logo_pfad: string | null }[]>("SELECT logo_pfad FROM mandant LIMIT 1");
+      const pfad = zeilen[0]?.logo_pfad;
+      if (pfad) {
+        try {
+          await remove(pfad);
+        } catch {
+          // Datei bereits weg — nichts zu tun.
+        }
+      }
+      await db.execute("UPDATE mandant SET logo_pfad = NULL");
+    },
+
+    async logoInhalt(): Promise<Blob | null> {
+      const zeilen = await db.select<{ logo_pfad: string | null }[]>("SELECT logo_pfad FROM mandant LIMIT 1");
+      const pfad = zeilen[0]?.logo_pfad;
+      if (!pfad) return null;
+      try {
+        const bytes = await readFile(pfad);
+        return new Blob([bytes]);
+      } catch {
+        return null;
+      }
+    },
+
+    async erstinbetriebnahmeAbgeschlossen(): Promise<boolean> {
+      const zeilen = await db.select<{ wert: string | null }[]>(
+        "SELECT wert FROM einstellung WHERE schluessel = 'erstinbetriebnahme_abgeschlossen'",
+      );
+      return zeilen[0]?.wert === "1";
+    },
+
+    async erstinbetriebnahmeAbschliessen(): Promise<void> {
+      await db.execute(
+        "INSERT INTO einstellung (schluessel, wert) VALUES ('erstinbetriebnahme_abgeschlossen', '1') ON CONFLICT (schluessel) DO UPDATE SET wert = '1'",
+      );
     },
 
     async gutscheine() {

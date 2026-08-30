@@ -16,3 +16,8 @@ export async function dokumenteOrdner(mandantId: string, jahr: number): Promise<
   const basis = await appDataDir();
   return join(basis, "kontor", "dokumente", mandantId, String(jahr));
 }
+
+export async function logoOrdner(mandantId: string): Promise<string> {
+  const basis = await appDataDir();
+  return join(basis, "kontor", "logo", mandantId);
+}

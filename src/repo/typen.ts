@@ -28,10 +28,27 @@ export interface LoeschErgebnis {
 }
 
 export interface MandantEinstellungen {
+  firma: string;
+  inhaber: string;
+  strasse: string;
+  plz: string;
+  ort: string;
+  land: string;
+  stnr: string;
+  ustid: string;
+  tel: string;
+  mail: string;
+  logoPfad: string | null;
   kassenAnfangsbestand: number;
   kleinunternehmer: boolean;
   versteuerung: "ist" | "soll";
   voranmeldung: "monatlich" | "quartalsweise" | "jaehrlich";
+}
+
+export interface NeuesLogo {
+  dateiname: string;
+  mime: string;
+  inhalt: Uint8Array;
 }
 
 export interface GutscheinAusgabe {
@@ -74,6 +91,12 @@ export interface Datenquelle {
   modus: "tauri" | "vorschau";
 
   mandantEinstellungen(): Promise<MandantEinstellungen>;
+  mandantEinstellungenSpeichern(profil: MandantEinstellungen): Promise<void>;
+  logoSpeichern(logo: NeuesLogo): Promise<void>;
+  logoEntfernen(): Promise<void>;
+  logoInhalt(): Promise<Blob | null>;
+  erstinbetriebnahmeAbgeschlossen(): Promise<boolean>;
+  erstinbetriebnahmeAbschliessen(): Promise<void>;
   gutscheine(): Promise<Gutschein[]>;
   gutscheinAusgeben(eingabe: GutscheinAusgabe): Promise<void>;
   gutscheinEinloesen(eingabe: GutscheinEinloesung): Promise<LoeschErgebnis>;

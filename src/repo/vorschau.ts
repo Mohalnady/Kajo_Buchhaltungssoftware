@@ -8,7 +8,7 @@ import { offenerBetrag, statusNachEinloesung } from "../lib/gutschein.ts";
 import { round2 } from "../lib/numbers.ts";
 import { skr03Startkonten } from "../lib/skr03.ts";
 import { uid } from "../lib/uid.ts";
-import type { Datenquelle, LoeschErgebnis } from "./typen.ts";
+import type { Datenquelle, LoeschErgebnis, MandantEinstellungen } from "./typen.ts";
 
 // Blob-Inhalte der Vorschau-Belege leben nur im Arbeitsspeicher der Sitzung.
 const belegBlobs = new Map<string, Blob>();
@@ -46,12 +46,50 @@ export function erstelleVorschauDatenquelle(): Datenquelle {
   const mitarbeiterListe: Mitarbeiter[] = [];
   const zeiteintraege: Zeiteintrag[] = [];
   const zuschlagsregeln: Zuschlagsregel[] = [];
+  let logoBlob: Blob | null = null;
+  const firmenprofil: MandantEinstellungen = {
+    firma: "Meine Firma",
+    inhaber: "",
+    strasse: "",
+    plz: "",
+    ort: "",
+    land: "DE",
+    stnr: "",
+    ustid: "",
+    tel: "",
+    mail: "",
+    logoPfad: null,
+    kassenAnfangsbestand: 200,
+    kleinunternehmer: false,
+    versteuerung: "ist",
+    voranmeldung: "monatlich",
+  };
 
   return {
     modus: "vorschau",
 
     async mandantEinstellungen() {
-      return { kassenAnfangsbestand: 200, kleinunternehmer: false, versteuerung: "ist", voranmeldung: "monatlich" };
+      return { ...firmenprofil };
+    },
+    async mandantEinstellungenSpeichern(profil) {
+      Object.assign(firmenprofil, profil);
+    },
+    async logoSpeichern(logo) {
+      logoBlob = new Blob([logo.inhalt as BlobPart]);
+      firmenprofil.logoPfad = logo.dateiname;
+    },
+    async logoEntfernen() {
+      logoBlob = null;
+      firmenprofil.logoPfad = null;
+    },
+    async logoInhalt() {
+      return logoBlob;
+    },
+    async erstinbetriebnahmeAbgeschlossen() {
+      return true;
+    },
+    async erstinbetriebnahmeAbschliessen() {
+      // In der Vorschau ohne Datenspeicherung ist nichts zu tun.
     },
     async gutscheine() {
       return gutscheine.slice();
