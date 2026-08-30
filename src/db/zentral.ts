@@ -1,6 +1,8 @@
-// Zugriff auf die zentrale Datei $APPDATA/kontor.db (relativ zu
-// BaseDirectory::App, siehe tauri-plugin-sql — bewusst außerhalb des
-// "kontor"-Unterordners, in dem Mandanten-DBs, Belege und Dokumente liegen).
+// Zugriff auf die zentrale Datei kontor.db. tauri-plugin-sql legt sie unter
+// $APPCONFIG an (app_config_dir(), NICHT app_data_dir() — siehe die
+// ausführliche Begründung in repo/sicherungTauri.ts::zentraleDbPfad), also in
+// einem anderen Verzeichnis als der "kontor"-Unterordner unter $APPDATA, in
+// dem Mandanten-DBs, Belege und Dokumente liegen.
 // Schema und Migration: src-tauri/migrations/zentral/0001_init.sql.
 
 import Database from "@tauri-apps/plugin-sql";
