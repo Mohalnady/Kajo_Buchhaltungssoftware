@@ -54,6 +54,8 @@ import { buchungenZuCsv } from "./lib/buchungscsv.ts";
 import { datevBuchungsstapel, type DatevMandantendaten } from "./lib/datev.ts";
 import { encodiereWindows1252 } from "./lib/cp1252.ts";
 import * as XLSX from "xlsx";
+import { jsPDF } from "jspdf";
+import autoTable from "jspdf-autotable";
 import {
   bwaBlatt,
   euerBlatt,
@@ -1064,7 +1066,8 @@ function arbeitsblattZuXlsxSheet(blatt: Arbeitsblatt): XLSX.WorkSheet {
   return XLSX.utils.aoa_to_sheet([blatt.kopfzeile, ...blatt.zeilen]);
 }
 
-function excelExportErstellen(): void {
+/** Die sechs Auswertungs-Arbeitsblätter (Journal bis USt-Voranmeldung) für den "berichte"-Zeitraum. Gemeinsam für Excel- und PDF-Export. */
+function auswertungsBlaetterFuerZeitraum(): Arbeitsblatt[] {
   const zr = zeitraumFuer("berichte");
   const monat = zr.bis.slice(0, 7);
   const buchungenZeitraum = berichteBuchungenGefiltert();
@@ -1081,20 +1084,28 @@ function excelExportErstellen(): void {
     zeilen: kontenblatt(buchungenZeitraum, kontoVon, nr),
   }));
 
-  const jahre = [...new Set([Number(zr.von.slice(0, 4)), Number(zr.bis.slice(0, 4))])];
-  const feiertage = jahre.flatMap((jahr) => feiertageNrw(jahr));
-  const pruefeFeiertag = (datum: string) => istFeiertag(datum, feiertage);
-  const eintraegeZeitraum = zustand.zeiteintraege.filter((e) => e.datum >= zr.von && e.datum <= zr.bis);
-
-  const blaetter: Arbeitsblatt[] = [
+  return [
     journalBlatt(buchungenZeitraum, kontoVon),
     summenSaldenBlatt(salden),
     kontenblaetterBlatt(kontenblaetter),
     bwaBlatt(bwa),
     euerBlatt(euer),
     ustvaBlatt(ustva),
-    stundenlisteBlatt(eintraegeZeitraum, (id) => zustand.mitarbeiter.find((m) => m.id === id), zustand.zuschlagsregeln, pruefeFeiertag),
   ];
+}
+
+function stundenlisteFuerZeitraum(): Arbeitsblatt {
+  const zr = zeitraumFuer("berichte");
+  const jahre = [...new Set([Number(zr.von.slice(0, 4)), Number(zr.bis.slice(0, 4))])];
+  const feiertage = jahre.flatMap((jahr) => feiertageNrw(jahr));
+  const pruefeFeiertag = (datum: string) => istFeiertag(datum, feiertage);
+  const eintraegeZeitraum = zustand.zeiteintraege.filter((e) => e.datum >= zr.von && e.datum <= zr.bis);
+  return stundenlisteBlatt(eintraegeZeitraum, (id) => zustand.mitarbeiter.find((m) => m.id === id), zustand.zuschlagsregeln, pruefeFeiertag);
+}
+
+function excelExportErstellen(): void {
+  const zr = zeitraumFuer("berichte");
+  const blaetter = [...auswertungsBlaetterFuerZeitraum(), stundenlisteFuerZeitraum()];
 
   const arbeitsmappe = XLSX.utils.book_new();
   for (const blatt of blaetter) {
@@ -1102,6 +1113,100 @@ function excelExportErstellen(): void {
   }
   const inhalt = XLSX.write(arbeitsmappe, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
   ladeDateiHerunter(inhalt, `Kontor-Export_${zr.von}_${zr.bis}.xlsx`, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+}
+
+/** Lädt das aktuell hinterlegte Logo als data:-URL, wie es jsPDFs addImage() erwartet. */
+async function logoAlsDataUrl(): Promise<string | null> {
+  if (!zustand.logoObjectUrl) return null;
+  try {
+    const antwort = await fetch(zustand.logoObjectUrl);
+    const blob = await antwort.blob();
+    return await new Promise<string | null>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : null);
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
+}
+
+/** Zahlen mit Komma und zwei Nachkommastellen, ganze Zahlen unverändert (Prozent-/Stückangaben). */
+function pdfZellenwert(feld: string | number): string {
+  if (typeof feld !== "number") return feld;
+  return Number.isInteger(feld) ? String(feld) : feld.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/** PDF-Kopfzeile nach SPEC.md Abschnitt 7: Logo links, rechts Firma/Anschrift/Steuernummer. */
+function pdfKopfzeileZeichnen(doc: jsPDF, logoDataUrl: string | null, profil: MandantEinstellungen, titel: string): void {
+  const breite = doc.internal.pageSize.getWidth();
+  if (logoDataUrl) {
+    try {
+      doc.addImage(logoDataUrl, 14, 10, 22, 22);
+    } catch {
+      // Logo in einem von jsPDF nicht unterstützten Format — Kopfzeile ohne Logo weiterzeichnen.
+    }
+  }
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(13);
+  doc.text(profil.firma || "Kontor", breite - 14, 16, { align: "right" });
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  const adresse = [profil.strasse, [profil.plz, profil.ort].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+  let zeile = 21;
+  if (adresse) {
+    doc.text(adresse, breite - 14, zeile, { align: "right" });
+    zeile += 4.5;
+  }
+  if (profil.stnr) doc.text(`Steuernummer: ${profil.stnr}`, breite - 14, zeile, { align: "right" });
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(15);
+  doc.text(titel, 14, 42);
+  doc.setFont("helvetica", "normal");
+}
+
+/** PDF-Fußzeile nach SPEC.md Abschnitt 7: Seitenzahl, Erstellungsdatum, Hinweis "interne Auswertung". */
+function pdfFusszeileZeichnen(doc: jsPDF, seite: number, gesamtseiten: number): void {
+  const breite = doc.internal.pageSize.getWidth();
+  const hoehe = doc.internal.pageSize.getHeight();
+  doc.setFontSize(8);
+  doc.setTextColor(120);
+  doc.text(`Seite ${seite} von ${gesamtseiten}`, 14, hoehe - 8);
+  doc.text(`Erstellt am ${new Date().toLocaleDateString("de-DE")}`, breite / 2, hoehe - 8, { align: "center" });
+  doc.text("Interne Auswertung, keine amtliche Unterlage", breite - 14, hoehe - 8, { align: "right" });
+  doc.setTextColor(0);
+}
+
+function blattAnPdfAnhaengen(doc: jsPDF, blatt: Arbeitsblatt, logoDataUrl: string | null, profil: MandantEinstellungen, ersteSeite: boolean): void {
+  const querformat = blatt.kopfzeile.length > 6;
+  if (!ersteSeite) doc.addPage("a4", querformat ? "landscape" : "portrait");
+  pdfKopfzeileZeichnen(doc, logoDataUrl, profil, blatt.name);
+  autoTable(doc, {
+    startY: 48,
+    head: [blatt.kopfzeile],
+    body: blatt.zeilen.map((z) => z.map(pdfZellenwert)),
+    styles: { fontSize: 8, cellPadding: 2 },
+    headStyles: { fillColor: [51, 51, 51] },
+    margin: { left: 14, right: 14, bottom: 16 },
+  });
+}
+
+async function pdfExportErstellen(): Promise<void> {
+  const zr = zeitraumFuer("berichte");
+  const blaetter = auswertungsBlaetterFuerZeitraum();
+  const logoDataUrl = await logoAlsDataUrl();
+
+  const ersteQuer = blaetter[0].kopfzeile.length > 6;
+  const doc = new jsPDF({ orientation: ersteQuer ? "landscape" : "portrait", format: "a4" });
+  blaetter.forEach((blatt, i) => blattAnPdfAnhaengen(doc, blatt, logoDataUrl, zustand.firmenprofil, i === 0));
+
+  const gesamtseiten = doc.getNumberOfPages();
+  for (let seite = 1; seite <= gesamtseiten; seite++) {
+    doc.setPage(seite);
+    pdfFusszeileZeichnen(doc, seite, gesamtseiten);
+  }
+  doc.save(`Kontor-Export_${zr.von}_${zr.bis}.pdf`);
 }
 
 function kandidatenNeuBerechnen(): void {
@@ -1668,7 +1773,8 @@ function renderBerichte(): string {
   return (
     topbarTitel(
       t(zustand.sprache, "berichte"),
-      `<button class="btn ghost" data-aktion="excel-export-erstellen">${icon("doc")}${t(zustand.sprache, "export_excel")}</button>`,
+      `<button class="btn ghost" data-aktion="excel-export-erstellen">${icon("doc")}${t(zustand.sprache, "export_excel")}</button>
+       <button class="btn ghost" data-aktion="pdf-export-erstellen">${icon("doc")}${t(zustand.sprache, "export_pdf")}</button>`,
     ) +
     `<div class="seg" style="margin-bottom:16px">${tabs
       .map(
@@ -3260,6 +3366,9 @@ function einrichten(): void {
         break;
       case "excel-export-erstellen":
         excelExportErstellen();
+        break;
+      case "pdf-export-erstellen":
+        void pdfExportErstellen();
         break;
       case "import-abbrechen":
         importAbbrechen();

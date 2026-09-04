@@ -19,6 +19,8 @@
     "@tauri-apps/plugin-sql": "^2.4.0",
     "@tauri-apps/plugin-updater": "^2.10.1",
     "fflate": "^0.8.3",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.8",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
