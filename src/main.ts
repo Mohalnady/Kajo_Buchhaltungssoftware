@@ -51,6 +51,8 @@ import { spaltenErkennen, type DublettenKandidat, type ImportFeld } from "./lib/
 import { zeileZuKandidat, type ImportKandidat } from "./lib/importkandidaten.ts";
 import { standardImportRegeln } from "./lib/standardimportregeln.ts";
 import { buchungenZuCsv } from "./lib/buchungscsv.ts";
+import { datevBuchungsstapel, type DatevMandantendaten } from "./lib/datev.ts";
+import { encodiereWindows1252 } from "./lib/cp1252.ts";
 import { BWA_GRUPPEN, bwaBericht, monatVerschieben, summenNachGruppe } from "./lib/bwa.ts";
 import { euerBericht, type EuerZeile } from "./lib/euer.ts";
 import { ustVoranmeldung } from "./lib/ustva.ts";
@@ -996,6 +998,57 @@ function buchungenExportieren(): void {
   ladeDateiHerunter(csv, `buchungen_${new Date().toISOString().slice(0, 10)}.csv`, "text/csv;charset=utf-8");
 }
 
+let datevBeraterNr = 1001;
+let datevMandantNr = 1;
+
+function datevExportFormular(): void {
+  const heute = new Date();
+  const monatsErsten = `${heute.getFullYear()}-${String(heute.getMonth() + 1).padStart(2, "0")}-01`;
+  const heuteIso = heute.toISOString().slice(0, 10);
+  openModal(`
+    <div class="mhead"><h2 style="margin:0">${t(zustand.sprache, "export_datev")}</h2>
+      <button class="x" data-modal-close>${icon("x")}</button></div>
+    <div class="hint">${t(zustand.sprache, "datev_hinweis")}</div>
+    <div class="row" style="margin-top:12px">
+      <div><label class="f">${t(zustand.sprache, "datev_berater_nr")}</label><input type="number" id="f-datev-berater" value="${datevBeraterNr}"></div>
+      <div><label class="f">${t(zustand.sprache, "datev_mandant_nr")}</label><input type="number" id="f-datev-mandant" value="${datevMandantNr}"></div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <div><label class="f">${t(zustand.sprache, "von")}</label><input type="date" id="f-datev-von" value="${monatsErsten}"></div>
+      <div><label class="f">${t(zustand.sprache, "bis")}</label><input type="date" id="f-datev-bis" value="${heuteIso}"></div>
+    </div>
+    <div class="row" style="margin-top:20px;justify-content:flex-end">
+      <button class="btn ghost fit" data-modal-close>${t(zustand.sprache, "cancel")}</button>
+      <button class="btn fit" data-aktion="datev-export-erstellen">${t(zustand.sprache, "export_datev")}</button>
+    </div>
+  `);
+}
+
+function datevExportErstellen(): void {
+  datevBeraterNr = Number(document.querySelector<HTMLInputElement>("#f-datev-berater")?.value ?? datevBeraterNr);
+  datevMandantNr = Number(document.querySelector<HTMLInputElement>("#f-datev-mandant")?.value ?? datevMandantNr);
+  const von = document.querySelector<HTMLInputElement>("#f-datev-von")?.value ?? "";
+  const bis = document.querySelector<HTMLInputElement>("#f-datev-bis")?.value ?? "";
+  if (!von || !bis) {
+    zeigeMeldung(t(zustand.sprache, "fehler_pflichtfelder"));
+    return;
+  }
+  const buchungenImZeitraum = zustand.buchungen.filter((b) => b.datum >= von && b.datum <= bis);
+  const daten: DatevMandantendaten = {
+    beraterNr: datevBeraterNr,
+    mandantNr: datevMandantNr,
+    wjBeginn: `${von.slice(0, 4)}-01-01`,
+    kontoLaenge: 4,
+    von,
+    bis,
+    bezeichnung: `Kontor-Export ${von} bis ${bis}`,
+  };
+  const text = datevBuchungsstapel(buchungenImZeitraum, kontoVon, daten);
+  const bytes = encodiereWindows1252(text);
+  ladeDateiHerunter(bytes as BlobPart, `EXTF_Buchungsstapel_${von}_${bis}.csv`, "text/csv;charset=windows-1252");
+  closeModal();
+}
+
 function kandidatenNeuBerechnen(): void {
   if (!importSitzung) return;
   const bestehende: DublettenKandidat[] = zustand.buchungen.map((b) => ({
@@ -1191,7 +1244,8 @@ function renderDatenimport(): string {
   return (
     topbarTitel(
       t(zustand.sprache, "imp"),
-      `<button class="btn ghost" data-aktion="buchungen-exportieren">${icon("doc")}${t(zustand.sprache, "export_csv")}</button>`,
+      `<button class="btn ghost" data-aktion="buchungen-exportieren">${icon("doc")}${t(zustand.sprache, "export_csv")}</button>
+       <button class="btn ghost" data-aktion="datev-export-oeffnen">${icon("doc")}${t(zustand.sprache, "export_datev")}</button>`,
     ) +
     `<div class="card"><h2 style="margin-top:0">${t(zustand.sprache, "import_datei")}</h2>
       <div id="import-bereich">${renderImportBereich()}</div>
@@ -3139,6 +3193,12 @@ function einrichten(): void {
         break;
       case "buchungen-exportieren":
         buchungenExportieren();
+        break;
+      case "datev-export-oeffnen":
+        datevExportFormular();
+        break;
+      case "datev-export-erstellen":
+        datevExportErstellen();
         break;
       case "import-abbrechen":
         importAbbrechen();
