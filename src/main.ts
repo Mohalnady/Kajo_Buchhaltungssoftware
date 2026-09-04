@@ -53,6 +53,17 @@ import { standardImportRegeln } from "./lib/standardimportregeln.ts";
 import { buchungenZuCsv } from "./lib/buchungscsv.ts";
 import { datevBuchungsstapel, type DatevMandantendaten } from "./lib/datev.ts";
 import { encodiereWindows1252 } from "./lib/cp1252.ts";
+import * as XLSX from "xlsx";
+import {
+  bwaBlatt,
+  euerBlatt,
+  journalBlatt,
+  kontenblaetterBlatt,
+  stundenlisteBlatt,
+  summenSaldenBlatt,
+  ustvaBlatt,
+  type Arbeitsblatt,
+} from "./lib/exportarbeitsmappe.ts";
 import { BWA_GRUPPEN, bwaBericht, monatVerschieben, summenNachGruppe } from "./lib/bwa.ts";
 import { euerBericht, type EuerZeile } from "./lib/euer.ts";
 import { ustVoranmeldung } from "./lib/ustva.ts";
@@ -1049,6 +1060,50 @@ function datevExportErstellen(): void {
   closeModal();
 }
 
+function arbeitsblattZuXlsxSheet(blatt: Arbeitsblatt): XLSX.WorkSheet {
+  return XLSX.utils.aoa_to_sheet([blatt.kopfzeile, ...blatt.zeilen]);
+}
+
+function excelExportErstellen(): void {
+  const zr = zeitraumFuer("berichte");
+  const monat = zr.bis.slice(0, 7);
+  const buchungenZeitraum = berichteBuchungenGefiltert();
+
+  const bwa = bwaBericht(zustand.buchungen, kontoVon, zustand.kleinunternehmer, monat);
+  const euer = euerBericht(zustand.buchungen, kontoVon, zustand.kleinunternehmer, zr.von, zr.bis);
+  const ustva = ustVoranmeldung(zustand.buchungen, kontoVon, zustand.kleinunternehmer, zustand.versteuerung, zr.von, zr.bis);
+  const salden = summenUndSalden(buchungenZeitraum, kontoVon);
+
+  const kontenMitBuchungen = [...new Set(buchungenZeitraum.flatMap((b) => [b.konto, b.gegenkonto]))].sort();
+  const kontenblaetter = kontenMitBuchungen.map((nr) => ({
+    konto: nr,
+    name: kontoVon(nr)?.name ?? nr,
+    zeilen: kontenblatt(buchungenZeitraum, kontoVon, nr),
+  }));
+
+  const jahre = [...new Set([Number(zr.von.slice(0, 4)), Number(zr.bis.slice(0, 4))])];
+  const feiertage = jahre.flatMap((jahr) => feiertageNrw(jahr));
+  const pruefeFeiertag = (datum: string) => istFeiertag(datum, feiertage);
+  const eintraegeZeitraum = zustand.zeiteintraege.filter((e) => e.datum >= zr.von && e.datum <= zr.bis);
+
+  const blaetter: Arbeitsblatt[] = [
+    journalBlatt(buchungenZeitraum, kontoVon),
+    summenSaldenBlatt(salden),
+    kontenblaetterBlatt(kontenblaetter),
+    bwaBlatt(bwa),
+    euerBlatt(euer),
+    ustvaBlatt(ustva),
+    stundenlisteBlatt(eintraegeZeitraum, (id) => zustand.mitarbeiter.find((m) => m.id === id), zustand.zuschlagsregeln, pruefeFeiertag),
+  ];
+
+  const arbeitsmappe = XLSX.utils.book_new();
+  for (const blatt of blaetter) {
+    XLSX.utils.book_append_sheet(arbeitsmappe, arbeitsblattZuXlsxSheet(blatt), blatt.name.slice(0, 31));
+  }
+  const inhalt = XLSX.write(arbeitsmappe, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
+  ladeDateiHerunter(inhalt, `Kontor-Export_${zr.von}_${zr.bis}.xlsx`, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+}
+
 function kandidatenNeuBerechnen(): void {
   if (!importSitzung) return;
   const bestehende: DublettenKandidat[] = zustand.buchungen.map((b) => ({
@@ -1611,7 +1666,10 @@ function renderBerichte(): string {
   const inhalt =
     berichteUnterAnsicht === "journal" ? renderJournal() : berichteUnterAnsicht === "salden" ? renderSaldenliste() : renderKontenblattAnsicht();
   return (
-    topbarTitel(t(zustand.sprache, "berichte")) +
+    topbarTitel(
+      t(zustand.sprache, "berichte"),
+      `<button class="btn ghost" data-aktion="excel-export-erstellen">${icon("doc")}${t(zustand.sprache, "export_excel")}</button>`,
+    ) +
     `<div class="seg" style="margin-bottom:16px">${tabs
       .map(
         (tb) =>
@@ -3199,6 +3257,9 @@ function einrichten(): void {
         break;
       case "datev-export-erstellen":
         datevExportErstellen();
+        break;
+      case "excel-export-erstellen":
+        excelExportErstellen();
         break;
       case "import-abbrechen":
         importAbbrechen();
