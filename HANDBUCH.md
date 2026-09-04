@@ -194,13 +194,27 @@ laufend abgelegt (Foto oder PDF, mit Datum und Typ). Am Monatsende lässt
 sich daraus ein **Monatspaket** als ZIP-Datei herunterladen — praktisch für
 die Übergabe an den Steuerberater.
 
-### 6.3 Was hier noch fehlt
+### 6.3 Excel-, PDF- und DATEV-Export der Auswertungen
 
-Der Excel- und PDF-Export der Auswertungen (BWA, EÜR, Journal, mit Logo und
-Kopfzeile) sowie der DATEV-Buchungsstapel-Export sind laut Plan vorgesehen,
-aber zum jetzigen Stand **noch nicht umgesetzt**. Aktuell steht ein
-CSV-Export der Buchungen zur Verfügung. Dasselbe gilt für den
-Stundenzettel als PDF (siehe 7.4).
+Unter *Auswertungen → Journal & Konten* stehen drei weitere Exportknöpfe,
+jeweils für den oben gewählten Zeitraum:
+
+- **Als Excel exportieren** — eine Arbeitsmappe mit sieben Blättern:
+  Journal, Summen und Salden, Kontenblätter, BWA, EÜR, USt-Voranmeldung und
+  Stundenliste (nur freigegebene Einträge).
+- **Als PDF exportieren** — dieselben sechs Auswertungen (ohne
+  Stundenliste, die hat ihren eigenen Stundenzettel-PDF, siehe 7.4) als
+  A4-PDF, mit Logo und Firmendaten in der Kopfzeile, Querformat bei breiten
+  Tabellen, Seitenzahl und Erstellungsdatum in der Fußzeile.
+- **DATEV-Export** — ein EXTF-Buchungsstapel für die Kanzleisoftware des
+  Steuerberaters. Beim ersten Mal nach Beraternummer und Mandantennummer
+  gefragt. **Vor dem ersten produktiven Einsatz unbedingt zusammen mit dem
+  Steuerberater testweise einspielen** — das genaue Format hängt von der
+  jeweiligen DATEV-Version ab und lässt sich hier nicht gegen eine echte
+  DATEV-Installation prüfen.
+
+Unter *Import und Export* steht zusätzlich weiterhin ein einfacher
+CSV-Export der Buchungen zur Verfügung.
 
 ---
 
@@ -236,10 +250,18 @@ frei anlegbar; Startwerte sind Nacht 25 %, Sonntag 50 %, Feiertag 125 %.
 Feiertage kommen aus dem hinterlegten Bundesland (Startwert
 Nordrhein-Westfalen).
 
-### 7.4 Was hier noch fehlt
+### 7.4 Stundenzettel als PDF
 
-Der Stundenzettel als PDF (pro Person und als Sammelliste mit
-Unterschriftsfeld) ist vorgesehen, aber noch nicht umgesetzt.
+Unter *Stundenerfassung* stehen zwei Exportknöpfe:
+
+- **Stundenzettel** — alle Einträge der gerade angezeigten Person im
+  gewählten Monat (unabhängig vom Freigabestatus), mit Summe und
+  Unterschriftsfeldern für Mitarbeiter und Inhaber. Für jede angemeldete
+  Person mit eigenem Zugang sichtbar, nicht nur für den Inhaber.
+- **Sammelliste** — nur für den Inhaber sichtbar: eine Zeile je
+  Mitarbeiter mit den im Monat freigegebenen Stunden und Bruttolohn, dazu
+  eine eigene Unterschriftsspalte je Person und eine
+  Freigabe-Unterschriftszeile am Ende.
 
 ---
 

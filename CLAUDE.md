@@ -59,4 +59,6 @@ sichtbar in die App und darf nicht wegoptimiert werden.
 P1 Buchhaltung → P2 Auswertungen → P3 Export und Import → P4 Personal →
 P5 Zugang und Sicherung → P6 Ausliefern.
 
-Aktueller Stand: P0 fertig, P1 beginnt.
+Aktueller Stand: P0–P6 umgesetzt (Details in README.md "Stand" und
+HANDBUCH.md). Ein bekannter offener Punkt: SQLCipher-Datenbankverschlüsselung
+(siehe README.md).

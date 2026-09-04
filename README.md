@@ -10,20 +10,20 @@ und war die Vorlage für Design und Bedienablauf.
 
 ## Stand
 
-P0–P5 sind umgesetzt: Buchhaltung (Buchungen, Kassenbuch, Gutscheine, Belege),
-Auswertungen (BWA, EÜR, USt-Voranmeldung, Berichte, sieben Diagramme), Import und
-Export (Dateiimport mit Zuordnung/Regeln/Protokoll, Belegablage, Monatspaket-ZIP),
-Personal (Mitarbeiter, Zeiterfassung mit Freigabe-Workflow, Zuschlagsregeln,
-Feiertage NRW), Zugang und Sicherung (Benutzerverwaltung mit vier Rollen,
-Argon2-Passwort-Hashing, lokale verschlüsselte Sicherung, Google-Drive-Anbindung).
+P0–P6 sind umgesetzt: Buchhaltung (Buchungen, Kassenbuch, Gutscheine, Belege),
+Auswertungen (BWA, EÜR, USt-Voranmeldung, Berichte, sieben Diagramme, Excel-/PDF-Export
+mit Logo und Kopfzeile, DATEV-Buchungsstapel), Import und Export (Dateiimport mit
+Zuordnung/Regeln/Protokoll, Belegablage, Monatspaket-ZIP), Personal (Mitarbeiter,
+Zeiterfassung mit Freigabe-Workflow, Zuschlagsregeln, Feiertage NRW, Stundenzettel-PDF
+pro Person und als Sammelliste), Zugang und Sicherung (Benutzerverwaltung mit vier
+Rollen, Argon2-Passwort-Hashing, lokale verschlüsselte Sicherung, Google-Drive-Anbindung),
+Ausliefern (Erstinbetriebnahme-Assistent, Firmendaten-Einstellungen,
+Aktualisierungsmechanismus über tauri-plugin-updater, Windows-Installer-Konfiguration).
 
-P6 (Ausliefern) läuft: Erstinbetriebnahme-Assistent und Firmendaten-Einstellungen
-sind fertig, ebenso der Aktualisierungsmechanismus (tauri-plugin-updater) und die
-Windows-Installer-Konfiguration. Offene Punkte stehen in `HANDBUCH.md` Abschnitt 6.3
-und 7.4 (Excel-/PDF-Export der Auswertungen, DATEV-Export, Stundenzettel-PDF) sowie
-in `SPEC.md` Abschnitt 8 (SQLCipher-Datenbankverschlüsselung — siehe Begründung in
-den Commit-Nachrichten, warum das mit der aktuellen SQL-Plugin-Version nicht ohne
-größere Architekturänderung sauber geht).
+Ein bekannter, bewusst offen gelassener Punkt: SQLCipher-Datenbankverschlüsselung
+(SPEC.md Abschnitt 8) lässt sich mit der verwendeten Version von tauri-plugin-sql
+nicht sauber einbauen, ohne die komplette Datenzugriffsschicht durch eigene
+Rust-Commands zu ersetzen — siehe die Begründung in den Commit-Nachrichten zu P5.
 
 ## Entwicklung
 
