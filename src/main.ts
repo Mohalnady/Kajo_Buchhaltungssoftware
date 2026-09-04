@@ -61,7 +61,9 @@ import {
   euerBlatt,
   journalBlatt,
   kontenblaetterBlatt,
+  sammellisteFuerMonat,
   stundenlisteBlatt,
+  stundenzettelFuerMitarbeiter,
   summenSaldenBlatt,
   ustvaBlatt,
   type Arbeitsblatt,
@@ -1207,6 +1209,112 @@ async function pdfExportErstellen(): Promise<void> {
     pdfFusszeileZeichnen(doc, seite, gesamtseiten);
   }
   doc.save(`Kontor-Export_${zr.von}_${zr.bis}.pdf`);
+}
+
+/** Reserviert Platz für eine neue Seite, falls ab `abY` nicht mehr genug Raum ist. Liefert die tatsächliche Start-Y-Position. */
+function unterschriftYSichern(doc: jsPDF, abY: number): number {
+  const hoehe = doc.internal.pageSize.getHeight();
+  if (abY + 20 > hoehe - 20) {
+    doc.addPage();
+    return 30;
+  }
+  return abY + 20;
+}
+
+/** Zwei Unterschriftslinien (Mitarbeiter/Vorgesetzter) für den Einzel-Stundenzettel. */
+function unterschriftsfeldZweiseitigZeichnen(doc: jsPDF, abY: number, rechteBezeichnung: string): void {
+  const breite = doc.internal.pageSize.getWidth();
+  const y = unterschriftYSichern(doc, abY);
+  doc.setDrawColor(120);
+  doc.line(14, y, 90, y);
+  doc.line(breite - 90, y, breite - 14, y);
+  doc.setFontSize(8);
+  doc.setTextColor(0);
+  doc.text("Datum, Unterschrift Mitarbeiter", 14, y + 4);
+  doc.text(`Datum, Unterschrift ${rechteBezeichnung}`, breite - 90, y + 4);
+}
+
+/** Eine Unterschriftslinie, für die Sammelliste (jede Zeile hat bereits ihre eigene Unterschriftsspalte). */
+function unterschriftsfeldEinseitigZeichnen(doc: jsPDF, abY: number, beschriftung: string): void {
+  const y = unterschriftYSichern(doc, abY);
+  doc.setDrawColor(120);
+  doc.line(14, y, 90, y);
+  doc.setFontSize(8);
+  doc.setTextColor(0);
+  doc.text(beschriftung, 14, y + 4);
+}
+
+async function stundenzettelPdfErstellen(): Promise<void> {
+  const mitarbeiter = zustand.mitarbeiter.find((m) => m.id === stundenMitarbeiterId);
+  if (!mitarbeiter) return;
+  const eintraege = zustand.zeiteintraege.filter((z) => z.mitarbeiter_id === stundenMitarbeiterId && z.datum.startsWith(stundenMonat));
+  const jahr = Number(stundenMonat.slice(0, 4));
+  const feiertage = feiertageNrw(jahr);
+  const pruefeFeiertag = (datum: string) => istFeiertag(datum, feiertage);
+  const zettel = stundenzettelFuerMitarbeiter(mitarbeiter, eintraege, stundenMonat, zustand.zuschlagsregeln, pruefeFeiertag, (art) =>
+    t(zustand.sprache, ZEITEINTRAG_ART_LABEL[art]),
+  );
+
+  const logoDataUrl = await logoAlsDataUrl();
+  const doc = new jsPDF({ orientation: "portrait", format: "a4" });
+  pdfKopfzeileZeichnen(doc, logoDataUrl, zustand.firmenprofil, `${t(zustand.sprache, "stundenzettel_titel")} — ${zettel.mitarbeiterName} (${zettel.monat})`);
+
+  let endeY = 48;
+  autoTable(doc, {
+    startY: 48,
+    head: [["Datum", "Art", "Zeiten", "Stunden", "Bruttolohn"]],
+    body: zettel.zeilen.map((z) => [z.datum.split("-").reverse().join("."), z.art, z.zeiten, pdfZellenwert(z.stunden), pdfZellenwert(z.bruttolohn)]),
+    foot: [["", "", "Summe", pdfZellenwert(zettel.summeStunden), pdfZellenwert(zettel.summeLohn)]],
+    styles: { fontSize: 9, cellPadding: 2 },
+    headStyles: { fillColor: [51, 51, 51] },
+    footStyles: { fillColor: [230, 230, 230], textColor: 0, fontStyle: "bold" },
+    margin: { left: 14, right: 14, bottom: 16 },
+    didDrawPage: (data) => {
+      if (data.cursor) endeY = data.cursor.y;
+    },
+  });
+  unterschriftsfeldZweiseitigZeichnen(doc, endeY, "Inhaber");
+
+  const gesamtseiten = doc.getNumberOfPages();
+  for (let seite = 1; seite <= gesamtseiten; seite++) {
+    doc.setPage(seite);
+    pdfFusszeileZeichnen(doc, seite, gesamtseiten);
+  }
+  doc.save(`Stundenzettel_${zettel.mitarbeiterName.replace(/\s+/g, "_")}_${zettel.monat}.pdf`);
+}
+
+async function sammellistePdfErstellen(): Promise<void> {
+  const eintraegeDesMonats = zustand.zeiteintraege.filter((z) => z.datum.startsWith(stundenMonat));
+  const jahr = Number(stundenMonat.slice(0, 4));
+  const feiertage = feiertageNrw(jahr);
+  const pruefeFeiertag = (datum: string) => istFeiertag(datum, feiertage);
+  const zeilen = sammellisteFuerMonat(zustand.mitarbeiter, eintraegeDesMonats, zustand.zuschlagsregeln, pruefeFeiertag);
+
+  const logoDataUrl = await logoAlsDataUrl();
+  const doc = new jsPDF({ orientation: "portrait", format: "a4" });
+  pdfKopfzeileZeichnen(doc, logoDataUrl, zustand.firmenprofil, `${t(zustand.sprache, "sammelliste_titel")} (${stundenMonat})`);
+
+  let endeY = 48;
+  autoTable(doc, {
+    startY: 48,
+    head: [["Mitarbeiter", "Stunden", "Bruttolohn", "Unterschrift"]],
+    body: zeilen.map((z) => [z.mitarbeiterName, pdfZellenwert(z.summeStunden), pdfZellenwert(z.summeLohn), ""]),
+    styles: { fontSize: 9, cellPadding: 3, minCellHeight: 10 },
+    headStyles: { fillColor: [51, 51, 51] },
+    columnStyles: { 3: { cellWidth: 60 } },
+    margin: { left: 14, right: 14, bottom: 16 },
+    didDrawPage: (data) => {
+      if (data.cursor) endeY = data.cursor.y;
+    },
+  });
+  unterschriftsfeldEinseitigZeichnen(doc, endeY, "Datum, Unterschrift Inhaber (geprüft und freigegeben)");
+
+  const gesamtseiten = doc.getNumberOfPages();
+  for (let seite = 1; seite <= gesamtseiten; seite++) {
+    doc.setPage(seite);
+    pdfFusszeileZeichnen(doc, seite, gesamtseiten);
+  }
+  doc.save(`Sammelliste_${stundenMonat}.pdf`);
 }
 
 function kandidatenNeuBerechnen(): void {
@@ -2392,7 +2500,9 @@ function renderStunden(): string {
   return (
     topbarTitel(
       t(zustand.sprache, "std"),
-      `<button class="btn" data-aktion="zeiteintrag-neu">${icon("plus")}${t(zustand.sprache, "addb")}</button>`,
+      `${mitarbeiter ? `<button class="btn ghost" data-aktion="stundenzettel-pdf">${icon("doc")}${t(zustand.sprache, "stundenzettel_titel")}</button>` : ""}
+       ${darfFreigeben ? `<button class="btn ghost" data-aktion="sammelliste-pdf">${icon("doc")}${t(zustand.sprache, "sammelliste_titel")}</button>` : ""}
+       <button class="btn" data-aktion="zeiteintrag-neu">${icon("plus")}${t(zustand.sprache, "addb")}</button>`,
     ) +
     `<div class="card">
       <div class="row" style="align-items:flex-end;flex-wrap:wrap">
@@ -3369,6 +3479,12 @@ function einrichten(): void {
         break;
       case "pdf-export-erstellen":
         void pdfExportErstellen();
+        break;
+      case "stundenzettel-pdf":
+        void stundenzettelPdfErstellen();
+        break;
+      case "sammelliste-pdf":
+        void sammellistePdfErstellen();
         break;
       case "import-abbrechen":
         importAbbrechen();

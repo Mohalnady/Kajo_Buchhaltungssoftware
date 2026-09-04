@@ -10,13 +10,14 @@
 // datev.ts — Exportdateien sind ein Übergabeformat für den Steuerberater,
 // unabhängig von der gerade eingestellten App-Sprache.
 
-import type { Buchung, Konto, Mitarbeiter, Zeiteintrag, Zuschlagsregel } from "./types.ts";
+import type { Buchung, Konto, Mitarbeiter, Zeiteintrag, ZeiteintragArt, Zuschlagsregel } from "./types.ts";
 import type { BwaBericht } from "./bwa.ts";
 import { BWA_GRUPPEN } from "./bwa.ts";
 import type { EuerBericht } from "./euer.ts";
 import type { UstVaBericht } from "./ustva.ts";
 import type { KontenblattZeile, SaldenZeile } from "./berichte.ts";
 import { bruttolohnFuerEintrag } from "./stunden.ts";
+import { round2 } from "./numbers.ts";
 
 export interface Arbeitsblatt {
   name: string;
@@ -152,4 +153,74 @@ export function stundenlisteBlatt(
       return [e.datum, mitarbeiter?.name ?? e.mitarbeiter_id, e.art, e.von ?? "", e.bis ?? "", e.pause_min, e.stunden, bruttolohn];
     }),
   };
+}
+
+// ---------- Stundenzettel als PDF (SPEC.md P4: pro Person und als Sammelliste mit Unterschriftsfeld) ----------
+
+export interface StundenzettelZeile {
+  datum: string;
+  art: string;
+  zeiten: string;
+  stunden: number;
+  bruttolohn: number;
+}
+
+export interface Stundenzettel {
+  mitarbeiterName: string;
+  monat: string;
+  zeilen: StundenzettelZeile[];
+  summeStunden: number;
+  summeLohn: number;
+}
+
+/** Stundenzettel für eine Person und einen Monat. `eintraege` sollte bereits auf Mitarbeiter+Monat gefiltert sein. */
+export function stundenzettelFuerMitarbeiter(
+  mitarbeiter: Mitarbeiter,
+  eintraege: Zeiteintrag[],
+  monat: string,
+  zuschlagsregeln: Zuschlagsregel[],
+  istFeiertagFn: (datum: string) => boolean,
+  artLabel: (art: ZeiteintragArt) => string,
+): Stundenzettel {
+  const sortiert = [...eintraege].sort((a, b) => a.datum.localeCompare(b.datum));
+  const zeilen: StundenzettelZeile[] = sortiert.map((e) => ({
+    datum: e.datum,
+    art: artLabel(e.art),
+    zeiten: e.art === "arbeit" && e.von && e.bis ? `${e.von}–${e.bis}` : "—",
+    stunden: e.stunden,
+    bruttolohn: bruttolohnFuerEintrag(e, mitarbeiter.stundenlohn, zuschlagsregeln, istFeiertagFn),
+  }));
+  return {
+    mitarbeiterName: mitarbeiter.name,
+    monat,
+    zeilen,
+    summeStunden: round2(zeilen.reduce((s, z) => s + z.stunden, 0)),
+    summeLohn: round2(zeilen.reduce((s, z) => s + z.bruttolohn, 0)),
+  };
+}
+
+export interface SammellisteZeile {
+  mitarbeiterName: string;
+  summeStunden: number;
+  summeLohn: number;
+}
+
+/** Eine Zeile je Mitarbeiter mit freigegebenen Stunden im Monat, für die Sammelliste mit Unterschriftsfeld. */
+export function sammellisteFuerMonat(
+  mitarbeiterListe: Mitarbeiter[],
+  eintraegeDesMonats: Zeiteintrag[],
+  zuschlagsregeln: Zuschlagsregel[],
+  istFeiertagFn: (datum: string) => boolean,
+): SammellisteZeile[] {
+  const freigegeben = eintraegeDesMonats.filter((e) => e.status === "freigegeben");
+  return mitarbeiterListe
+    .map((m) => {
+      const eigene = freigegeben.filter((e) => e.mitarbeiter_id === m.id);
+      return {
+        mitarbeiterName: m.name,
+        summeStunden: round2(eigene.reduce((s, e) => s + e.stunden, 0)),
+        summeLohn: round2(eigene.reduce((s, e) => s + bruttolohnFuerEintrag(e, m.stundenlohn, zuschlagsregeln, istFeiertagFn), 0)),
+      };
+    })
+    .filter((z) => z.summeStunden > 0);
 }

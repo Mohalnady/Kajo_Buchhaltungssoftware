@@ -4,7 +4,9 @@ import {
   euerBlatt,
   journalBlatt,
   kontenblaetterBlatt,
+  sammellisteFuerMonat,
   stundenlisteBlatt,
+  stundenzettelFuerMitarbeiter,
   summenSaldenBlatt,
   ustvaBlatt,
 } from "./exportarbeitsmappe.ts";
@@ -108,5 +110,64 @@ describe("stundenlisteBlatt", () => {
     expect(blatt.zeilen).toHaveLength(1);
     expect(blatt.zeilen[0][1]).toBe("Anna");
     expect(blatt.zeilen[0][7]).toBe(60); // 4 Std * 15 €
+  });
+});
+
+describe("stundenzettelFuerMitarbeiter", () => {
+  const anna: Mitarbeiter = {
+    id: "m1",
+    name: "Anna",
+    rolle: "Verkauf",
+    beschaeftigungsart: "teilzeit",
+    eintritt: "2024-01-01",
+    stundenlohn: 15,
+    wochenstunden: 20,
+    urlaubstage_jahr: 24,
+    aktiv: true,
+  };
+  const regeln: Zuschlagsregel[] = [];
+  const nieFeiertag = () => false;
+  const artLabel = (art: string) => (art === "arbeit" ? "Arbeit" : art === "urlaub" ? "Urlaub" : art);
+
+  it("übernimmt alle übergebenen Einträge unabhängig vom Status, chronologisch sortiert", () => {
+    const eintraege: Zeiteintrag[] = [
+      { id: "z2", mitarbeiter_id: "m1", datum: "2026-08-10", von: "08:00", bis: "12:00", pause_min: 0, stunden: 4, art: "arbeit", notiz: "", status: "entwurf" },
+      { id: "z1", mitarbeiter_id: "m1", datum: "2026-08-04", von: "08:00", bis: "16:00", pause_min: 30, stunden: 7.5, art: "arbeit", notiz: "", status: "freigegeben" },
+    ];
+    const zettel = stundenzettelFuerMitarbeiter(anna, eintraege, "2026-08", regeln, nieFeiertag, artLabel);
+    expect(zettel.zeilen.map((z) => z.datum)).toEqual(["2026-08-04", "2026-08-10"]);
+    expect(zettel.zeilen[0].zeiten).toBe("08:00–16:00");
+    expect(zettel.summeStunden).toBe(11.5);
+    expect(zettel.summeLohn).toBe(172.5); // (7.5 + 4) Std * 15 €
+  });
+
+  it("zeigt Urlaub ohne Uhrzeiten als Strich", () => {
+    const eintraege: Zeiteintrag[] = [
+      { id: "z1", mitarbeiter_id: "m1", datum: "2026-08-14", pause_min: 0, stunden: 0, art: "urlaub", notiz: "", status: "freigegeben" },
+    ];
+    const zettel = stundenzettelFuerMitarbeiter(anna, eintraege, "2026-08", regeln, nieFeiertag, artLabel);
+    expect(zettel.zeilen[0].zeiten).toBe("—");
+    expect(zettel.zeilen[0].art).toBe("Urlaub");
+  });
+});
+
+describe("sammellisteFuerMonat", () => {
+  const mitarbeiterListe: Mitarbeiter[] = [
+    { id: "m1", name: "Anna", rolle: "Verkauf", beschaeftigungsart: "teilzeit", eintritt: "2024-01-01", stundenlohn: 15, wochenstunden: 20, urlaubstage_jahr: 24, aktiv: true },
+    { id: "m2", name: "Ben", rolle: "Verkauf", beschaeftigungsart: "minijob", eintritt: "2024-01-01", stundenlohn: 12, wochenstunden: 10, urlaubstage_jahr: 20, aktiv: true },
+  ];
+  const regeln: Zuschlagsregel[] = [];
+  const nieFeiertag = () => false;
+
+  it("summiert nur freigegebene Stunden je Mitarbeiter und lässt Mitarbeiter ohne Stunden weg", () => {
+    const eintraege: Zeiteintrag[] = [
+      { id: "z1", mitarbeiter_id: "m1", datum: "2026-08-04", pause_min: 0, stunden: 5, art: "arbeit", notiz: "", status: "freigegeben" },
+      { id: "z2", mitarbeiter_id: "m1", datum: "2026-08-05", pause_min: 0, stunden: 3, art: "arbeit", notiz: "", status: "eingereicht" },
+      { id: "z3", mitarbeiter_id: "m2", datum: "2026-08-06", pause_min: 0, stunden: 2, art: "arbeit", notiz: "", status: "freigegeben" },
+    ];
+    const zeilen = sammellisteFuerMonat(mitarbeiterListe, eintraege, regeln, nieFeiertag);
+    expect(zeilen).toHaveLength(2);
+    expect(zeilen[0]).toEqual({ mitarbeiterName: "Anna", summeStunden: 5, summeLohn: 75 });
+    expect(zeilen[1]).toEqual({ mitarbeiterName: "Ben", summeStunden: 2, summeLohn: 24 });
   });
 });
