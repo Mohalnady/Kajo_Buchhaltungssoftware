@@ -27,7 +27,6 @@ import type {
 import { erstelleDatenquelle, istTauri } from "./repo/index.ts";
 import {
   benutzerAnmelden,
-  benutzerAnzahl,
   benutzerListe,
   benutzerAnlegen,
   benutzerPasswortAendern,
@@ -35,7 +34,13 @@ import {
   einstellungLesen,
   einstellungSchreiben,
   ersteBenutzerAnlegen,
+  zentraleDbAnlegen,
+  zentraleDbOeffnen,
+  zentraleDbUmschluesseln,
+  zentraleDbVorhanden,
 } from "./db/zentral.ts";
+import { schluesselSetzen } from "./db/sitzungsschluessel.ts";
+import { alleOffenenMandantenUmschluesseln } from "./db/mandant.ts";
 import { sicherungEinspielen, sicherungenAuflisten, sicherungErstellen, sicherungVorschau } from "./repo/sicherungTauri.ts";
 import type { BackupIntervall } from "./lib/sicherung.ts";
 import { join as pfadJoin } from "@tauri-apps/api/path";
@@ -2854,6 +2859,14 @@ async function benutzerSpeichernAktion(id: string): Promise<void> {
         return;
       }
       await benutzerPasswortAendern(id, neuesPasswort);
+      // Der Datenbankschlüssel folgt dem Passwort des Inhabers (SPEC.md
+      // Abschnitt 8) — ändert sich das Passwort eines Inhaber-Kontos, muss
+      // die zentrale und jede offene Mandanten-Datenbank neu verschlüsselt werden.
+      if (rolle === "inhaber") {
+        await zentraleDbUmschluesseln(neuesPasswort);
+        await alleOffenenMandantenUmschluesseln(neuesPasswort);
+        schluesselSetzen(neuesPasswort);
+      }
     }
   }
   await datenNeuLaden();
@@ -3333,10 +3346,11 @@ function render(): void {
   const app = document.querySelector<HTMLDivElement>("#app");
   if (!app) return;
 
-  if (appPhase === "ersteinrichtung" || appPhase === "login") {
+  if (appPhase === "datenbank-entsperren" || appPhase === "ersteinrichtung" || appPhase === "login") {
     document.documentElement.dir = SPRACHEN.find((s) => s.code === authSprache)?.rtl ? "rtl" : "ltr";
     document.documentElement.lang = authSprache;
-    app.innerHTML = appPhase === "ersteinrichtung" ? renderErsteinrichtung() : renderLogin();
+    app.innerHTML =
+      appPhase === "datenbank-entsperren" ? renderDatenbankEntsperren() : appPhase === "ersteinrichtung" ? renderErsteinrichtung() : renderLogin();
     return;
   }
 
@@ -3595,6 +3609,9 @@ function einrichten(): void {
       case "zuschlagsregeln-laden":
         void standardZuschlagsregelnLaden();
         break;
+      case "datenbank-entsperren":
+        void datenbankEntsperren();
+        break;
       case "ersteinrichtung-anlegen":
         void ersteinrichtungAnlegen();
         break;
@@ -3777,7 +3794,7 @@ function einrichten(): void {
 // eigene zentrale Datenbank hat. Im echten Tauri-Fenster steht vor der
 // eigentlichen App immer Ersteinrichtung (kein Benutzer vorhanden) oder Login.
 
-type AppPhase = "ersteinrichtung" | "login" | "erstinbetriebnahme" | "app";
+type AppPhase = "datenbank-entsperren" | "ersteinrichtung" | "login" | "erstinbetriebnahme" | "app";
 let appPhase: AppPhase = "app";
 let authSprache: Sprache = "de";
 let angemeldeterBenutzer: Benutzer | null = null;
@@ -3792,11 +3809,24 @@ function renderErsteinrichtung(): string {
     <div class="card" style="max-width:420px;margin:80px auto">
       <h1 style="margin-top:0">Kontor</h1>
       <p class="hint">${t(authSprache, "ersteinrichtung_hinweis")}</p>
+      <p class="hint">${t(authSprache, "ersteinrichtung_db_hinweis")}</p>
       <div style="margin-top:16px">${renderSprachSchalter(authSprache)}</div>
       <div style="margin-top:16px"><label class="f">${t(authSprache, "name")}</label><input id="f-eu-name" placeholder="Max Mustermann"></div>
       <div style="margin-top:12px"><label class="f">${t(authSprache, "passwort")}</label><input type="password" id="f-eu-passwort"></div>
       <div style="margin-top:12px"><label class="f">${t(authSprache, "passwort_wiederholen")}</label><input type="password" id="f-eu-passwort2"></div>
       <button class="btn" style="margin-top:20px;width:100%" data-aktion="ersteinrichtung-anlegen">${t(authSprache, "ersteinrichtung_anlegen")}</button>
+      <div id="auth-fehler" class="hint" style="color:var(--neg);margin-top:10px"></div>
+    </div>`;
+}
+
+function renderDatenbankEntsperren(): string {
+  return `
+    <div class="card" style="max-width:360px;margin:100px auto">
+      <h1 style="margin-top:0">Kontor</h1>
+      <p class="hint">${t(authSprache, "datenbank_entsperren_hinweis")}</p>
+      <div style="margin-top:16px">${renderSprachSchalter(authSprache)}</div>
+      <div style="margin-top:16px"><label class="f">${t(authSprache, "datenbank_passwort")}</label><input type="password" id="f-db-passwort"></div>
+      <button class="btn" style="margin-top:20px;width:100%" data-aktion="datenbank-entsperren">${t(authSprache, "datenbank_entsperren")}</button>
       <div id="auth-fehler" class="hint" style="color:var(--neg);margin-top:10px"></div>
     </div>`;
 }
@@ -3825,9 +3855,31 @@ async function ersteinrichtungAnlegen(): Promise<void> {
     zeigeAuthFehler(t(authSprache, "fehler_passwoerter_ungleich"));
     return;
   }
+  // Das Inhaber-Passwort wird zugleich zum Datenbank-Schlüssel (SPEC.md
+  // Abschnitt 8) — die zentrale Datenbank muss deshalb vor dem ersten
+  // Benutzer-Insert schon mit diesem Schlüssel angelegt sein.
+  await zentraleDbAnlegen(passwort);
+  schluesselSetzen(passwort);
   angemeldeterBenutzer = await ersteBenutzerAnlegen(name, passwort);
   appPhase = "app";
   await appStarten();
+}
+
+async function datenbankEntsperren(): Promise<void> {
+  const passwort = document.querySelector<HTMLInputElement>("#f-db-passwort")?.value ?? "";
+  if (!passwort) {
+    zeigeAuthFehler(t(authSprache, "fehler_passwort_kurz"));
+    return;
+  }
+  try {
+    await zentraleDbOeffnen(passwort);
+  } catch {
+    zeigeAuthFehler(t(authSprache, "fehler_datenbank_passwort"));
+    return;
+  }
+  schluesselSetzen(passwort);
+  appPhase = "login";
+  render();
 }
 
 async function loginAbsenden(): Promise<void> {
@@ -3913,8 +3965,8 @@ async function start(): Promise<void> {
     await appStarten();
     return;
   }
-  const anzahl = await benutzerAnzahl();
-  appPhase = anzahl === 0 ? "ersteinrichtung" : "login";
+  const vorhanden = await zentraleDbVorhanden();
+  appPhase = vorhanden ? "datenbank-entsperren" : "ersteinrichtung";
   render();
 }
 

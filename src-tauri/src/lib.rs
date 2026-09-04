@@ -1,32 +1,12 @@
 use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
 use argon2::Argon2;
 use rand_core::OsRng;
-use tauri_plugin_sql::{Migration, MigrationKind};
+
+mod db;
+use db::{db_auswaehlen, db_ausfuehren, db_mandant_anlegen, db_oeffnen, db_umschluesseln, db_zentral_anlegen, DbRegistry};
 
 mod google_drive;
 use google_drive::{google_drive_autorisieren, google_drive_datei_hochladen, google_drive_trennen, google_drive_verbunden};
-
-// Migration der zentralen Datei kontor.db (Mandantenregister, Benutzer, globale
-// Einstellungen). Siehe migrations/zentral/0001_init.sql und SPEC.md Abschnitt 4.
-fn zentrale_migrationen() -> Vec<Migration> {
-  vec![Migration {
-    version: 1,
-    description: "init",
-    sql: include_str!("../migrations/zentral/0001_init.sql"),
-    kind: MigrationKind::Up,
-  }]
-}
-
-// Jeder Mandant bekommt eine eigene SQLite-Datei mit identischem Schema, aber
-// unter einem zur Laufzeit erzeugten Pfad ($APPDATA/kontor/mandanten/<id>.db).
-// Das feste Migrationsregister des SQL-Plugins ist an feste Verbindungsnamen
-// gebunden und passt daher nicht auf dynamische Mandanten-IDs. Die Oberfläche
-// führt dieses Schema deshalb selbst per `mandant_schema_sql` aus, sobald eine
-// neue Mandanten-Datenbank angelegt wird.
-#[tauri::command]
-fn mandant_schema_sql() -> &'static str {
-  include_str!("../migrations/mandant/0001_init.sql")
-}
 
 // Passwort-Hashing für die Benutzerverwaltung (SPEC.md Abschnitt 8: "Passwörter
 // mit Argon2 oder bcrypt"). Läuft bewusst in Rust statt im Frontend, damit die
@@ -77,17 +57,18 @@ mod tests {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
-    .plugin(
-      tauri_plugin_sql::Builder::default()
-        .add_migrations("sqlite:kontor.db", zentrale_migrationen())
-        .build(),
-    )
+    .manage(DbRegistry::default())
     .plugin(tauri_plugin_fs::init())
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_process::init())
     .plugin(tauri_plugin_updater::Builder::new().build())
     .invoke_handler(tauri::generate_handler![
-      mandant_schema_sql,
+      db_oeffnen,
+      db_zentral_anlegen,
+      db_mandant_anlegen,
+      db_auswaehlen,
+      db_ausfuehren,
+      db_umschluesseln,
       passwort_hashen,
       passwort_pruefen,
       google_drive_autorisieren,

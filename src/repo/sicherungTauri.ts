@@ -5,26 +5,16 @@
 // statt in repo/tauri.ts.
 
 import { exists, mkdir, readDir, readFile, writeFile, remove } from "@tauri-apps/plugin-fs";
-import { appConfigDir, appDataDir, join } from "@tauri-apps/api/path";
+import { appDataDir, join } from "@tauri-apps/api/path";
 import { zipSync, unzipSync, type Zippable } from "fflate";
 import { verschluesseln, entschluesseln } from "../lib/krypto.ts";
 import { sicherungsdateiname, zuLoeschendeSicherungen } from "../lib/sicherung.ts";
 import { mandantenListe } from "../db/zentral.ts";
+import { zentraleDbPfad } from "../db/pfade.ts";
 
 export interface SicherungsManifest {
   erstellt_am: string;
   mandanten: { id: string; name: string; db_pfad: string }[];
-}
-
-async function zentraleDbPfad(): Promise<string> {
-  // "sqlite:kontor.db" wird von tauri-plugin-sql (Tauri 2) über
-  // app.path().app_config_dir() angelegt — NICHT über app_data_dir(), obwohl
-  // die (veraltete) Doku des Plugins noch das Tauri-1-Konzept
-  // "BaseDirectory::App" nennt. app_config_dir() und app_data_dir() sind in
-  // Tauri 2 unterschiedliche Verzeichnisse ($APPCONFIG vs. $APPDATA), siehe
-  // tauri-plugin-sql 2.4.0 src/wrapper.rs (DbPool::connect) und
-  // tauri 2.11 src/path/mod.rs (BaseDirectory::AppConfig/AppData).
-  return join(await appConfigDir(), "kontor.db");
 }
 
 async function alleDateienRekursiv(ordner: string): Promise<string[]> {
@@ -120,7 +110,9 @@ export async function sicherungEinspielen(pfad: string, passphrase: string): Pro
   for (const [zipPfad, inhalt] of Object.entries(dateien)) {
     if (zipPfad === "manifest.json") continue;
     if (zipPfad === "kontor.db") {
-      await writeFile(await zentraleDbPfad(), inhalt);
+      const zentralPfad = await zentraleDbPfad();
+      await mkdir(await join(basis, "kontor"), { recursive: true });
+      await writeFile(zentralPfad, inhalt);
       continue;
     }
     const teile = zipPfad.split("/");

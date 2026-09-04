@@ -7,10 +7,6 @@
   ],
   "permissions": [
     "core:default",
-    "sql:default",
-    "sql:allow-load",
-    "sql:allow-execute",
-    "sql:allow-select",
     {
       "identifier": "fs:allow-mkdir",
       "allow": [{ "path": "$APPDATA/kontor/**" }]

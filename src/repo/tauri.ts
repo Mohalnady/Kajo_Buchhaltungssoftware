@@ -2,7 +2,7 @@
 // Siehe src/db/mandant.ts fürs Öffnen/Anlegen der Datenbank und
 // src-tauri/migrations/mandant/0001_init.sql fürs Schema.
 
-import type Database from "@tauri-apps/plugin-sql";
+import type Database from "../db/verschluesselt.ts";
 import { mkdir, readFile, remove, writeFile } from "@tauri-apps/plugin-fs";
 import { join } from "@tauri-apps/api/path";
 import type { Beleg, Buchung, Dokument, Importlauf, Konto, Kostenstelle, Mitarbeiter, Zeiteintrag, Zuschlagsregel } from "../lib/types.ts";

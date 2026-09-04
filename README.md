@@ -18,12 +18,10 @@ Zeiterfassung mit Freigabe-Workflow, Zuschlagsregeln, Feiertage NRW, Stundenzett
 pro Person und als Sammelliste), Zugang und Sicherung (Benutzerverwaltung mit vier
 Rollen, Argon2-Passwort-Hashing, lokale verschlüsselte Sicherung, Google-Drive-Anbindung),
 Ausliefern (Erstinbetriebnahme-Assistent, Firmendaten-Einstellungen,
-Aktualisierungsmechanismus über tauri-plugin-updater, Windows-Installer-Konfiguration).
-
-Ein bekannter, bewusst offen gelassener Punkt: SQLCipher-Datenbankverschlüsselung
-(SPEC.md Abschnitt 8) lässt sich mit der verwendeten Version von tauri-plugin-sql
-nicht sauber einbauen, ohne die komplette Datenzugriffsschicht durch eigene
-Rust-Commands zu ersetzen — siehe die Begründung in den Commit-Nachrichten zu P5.
+Aktualisierungsmechanismus über tauri-plugin-updater, Windows-Installer-Konfiguration),
+SQLCipher-Datenbankverschlüsselung (SPEC.md Abschnitt 8: Schlüssel aus dem
+Passwort des Inhabers, ein gemeinsamer Entsperren-Bildschirm beim App-Start,
+siehe `src-tauri/src/db.rs`).
 
 ## Entwicklung
 

@@ -40,6 +40,9 @@ Diese erste Person wird automatisch **Inhaber** — die Rolle mit allen
 Rechten (siehe Abschnitt 3). Weitere Benutzer legt sie später selbst unter
 *Benutzer* an.
 
+Dieses Passwort verschlüsselt zugleich die Datenbank (SQLCipher) — es ist
+also gleichzeitig das **Datenbank-Passwort** aus Abschnitt 1.4.
+
 ### 1.3 Der Erstinbetriebnahme-Assistent
 
 Direkt nach der Ersteinrichtung fragt Kontor einmalig nach den Firmendaten:
@@ -52,11 +55,18 @@ Wer es eilig hat, kann über **Später einrichten** direkt in die App
 wechseln — die Angaben lassen sich jederzeit unter *Einstellungen*
 nachtragen oder ändern.
 
-### 1.4 Anmelden
+### 1.4 Datenbank entsperren und Anmelden
 
-Bei jedem weiteren Start erscheint die Anmeldemaske: Name und Passwort. Über
-**Abmelden** (unten links) kann zwischen Benutzern gewechselt werden, ohne
-die App zu schließen.
+Bei jedem weiteren Start erscheint zuerst der Bildschirm **Datenbank
+entsperren**: Hier wird einmalig das Passwort des Inhabers eingegeben, mit
+dem die Datenbank verschlüsselt ist (siehe Abschnitt 1.2). Erst danach
+folgt die eigentliche Anmeldemaske: Name und Passwort des jeweiligen
+Benutzers. Über **Abmelden** (unten links) kann tagsüber beliebig oft
+zwischen Benutzern gewechselt werden, ohne die Datenbank erneut zu
+entsperren oder die App zu schließen.
+
+Ändert der Inhaber sein eigenes Passwort (siehe Abschnitt 3), wird die
+Datenbank automatisch mit dem neuen Passwort neu verschlüsselt.
 
 ---
 
