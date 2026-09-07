@@ -161,12 +161,20 @@ async fn ausfuehren_intern(pool: &SqlitePool, sql: &str, werte: &[JsonValue]) ->
   })
 }
 
-async fn umschluesseln_intern(pool: &SqlitePool, neuer_schluessel: &str) -> Result<(), String> {
+/// Verschlüsselt die Datenbank mit einem neuen Schlüssel neu und liefert
+/// einen frischen Pool dafür zurück. `PRAGMA rekey` wirkt nur auf die eine
+/// Verbindung, auf der es ausgeführt wird — andere Verbindungen desselben
+/// Pools behalten den alten Schlüssel in ihrem SQLCipher-Kontext und würden
+/// bei der nächsten Abfrage mit "file is not a database" scheitern. Deshalb
+/// wird der gesamte alte Pool geschlossen und durch einen neu mit dem
+/// neuen Schlüssel geöffneten ersetzt.
+async fn umschluesseln_intern(pool: &SqlitePool, pfad: &str, neuer_schluessel: &str) -> Result<SqlitePool, String> {
   sqlx::query(&format!("PRAGMA rekey = {}", sql_quote(neuer_schluessel)))
     .execute(pool)
     .await
     .map_err(|e| e.to_string())?;
-  Ok(())
+  pool.close().await;
+  pool_oeffnen(pfad, neuer_schluessel).await
 }
 
 // ---------- Tauri-Commands (dünne Adapter über die Registry) ----------
@@ -188,6 +196,14 @@ fn pool_aus_registry(registry: &State<'_, DbRegistry>, pfad: &str) -> Result<Sql
 #[tauri::command]
 pub async fn db_oeffnen(registry: State<'_, DbRegistry>, pfad: String, schluessel: String) -> Result<(), String> {
   if registry.0.lock().map_err(|e| e.to_string())?.contains_key(&pfad) {
+    // Eine bereits offene Verbindung ersetzt keine Passwortprüfung: Die
+    // Registry lebt für die gesamte Prozesslaufzeit, ein Neuladen des
+    // Webviews setzt aber den JS-seitigen Sitzungsschlüssel zurück und
+    // zeigt erneut "Datenbank entsperren" — ohne diese Prüfung würde dann
+    // jedes beliebige Passwort akzeptiert. Eine kurzlebige Testverbindung
+    // mit dem angegebenen Schlüssel deckt ein falsches Passwort auf, ohne
+    // die schon offene Verbindung anzufassen.
+    pool_oeffnen(&pfad, &schluessel).await?.close().await;
     return Ok(());
   }
   let pool = pool_oeffnen(&pfad, &schluessel).await?;
@@ -255,8 +271,10 @@ pub async fn db_ausfuehren(
 /// dessen Passwort laut SPEC.md den Datenbankschlüssel bildet.
 #[tauri::command]
 pub async fn db_umschluesseln(registry: State<'_, DbRegistry>, pfad: String, neuer_schluessel: String) -> Result<(), String> {
-  let pool = pool_aus_registry(&registry, &pfad)?;
-  umschluesseln_intern(&pool, &neuer_schluessel).await
+  let alter_pool = pool_aus_registry(&registry, &pfad)?;
+  let neuer_pool = umschluesseln_intern(&alter_pool, &pfad, &neuer_schluessel).await?;
+  registry.0.lock().map_err(|e| e.to_string())?.insert(pfad, neuer_pool);
+  Ok(())
 }
 
 #[cfg(test)]
@@ -314,8 +332,8 @@ mod tests {
 
     let pool = pool_oeffnen(&datei, "altes-passwort").await.expect("anlegen darf nicht scheitern");
     schema_ausfuehren(&pool, "CREATE TABLE t (x INTEGER);").await.expect("schema darf nicht scheitern");
-    umschluesseln_intern(&pool, "neues-passwort").await.expect("umschluesseln darf nicht scheitern");
-    pool.close().await;
+    let neuer_pool = umschluesseln_intern(&pool, &datei, "neues-passwort").await.expect("umschluesseln darf nicht scheitern");
+    neuer_pool.close().await;
 
     assert!(pool_oeffnen(&datei, "altes-passwort").await.is_err());
     let neu = pool_oeffnen(&datei, "neues-passwort").await;
@@ -324,6 +342,32 @@ mod tests {
       p.close().await;
     }
 
+    std::fs::remove_file(&datei).ok();
+  }
+
+  /// Regressionstest: `PRAGMA rekey` wirkt nur auf die Verbindung, auf der es
+  /// ausgeführt wird. Andere Verbindungen desselben Pools (hier durch
+  /// mehrere gleichzeitige Abfragen erzwungen) hätten ohne den Ersatz des
+  /// gesamten Pools weiterhin den alten Schlüssel im SQLCipher-Kontext und
+  /// wären nach einer Passwortänderung des Inhabers gescheitert.
+  #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+  async fn umschluesseln_aktualisiert_alle_pool_verbindungen() {
+    let datei = tempfile_pfad();
+
+    let pool = pool_oeffnen(&datei, "altes-passwort").await.expect("anlegen darf nicht scheitern");
+    schema_ausfuehren(&pool, "CREATE TABLE t (x INTEGER);").await.expect("schema darf nicht scheitern");
+    let neuer_pool = umschluesseln_intern(&pool, &datei, "neues-passwort").await.expect("umschluesseln darf nicht scheitern");
+
+    let mut aufgaben = Vec::new();
+    for _ in 0..8 {
+      let p = neuer_pool.clone();
+      aufgaben.push(tokio::spawn(async move { sqlx::query("SELECT count(*) FROM t").fetch_one(&p).await }));
+    }
+    for aufgabe in aufgaben {
+      aufgabe.await.expect("task darf nicht paniken").expect("abfrage nach umschluesseln darf nicht scheitern");
+    }
+
+    neuer_pool.close().await;
     std::fs::remove_file(&datei).ok();
   }
 

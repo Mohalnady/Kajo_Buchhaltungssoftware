@@ -27,6 +27,7 @@ import type {
 import { erstelleDatenquelle, istTauri } from "./repo/index.ts";
 import {
   benutzerAnmelden,
+  benutzerAnzahl,
   benutzerListe,
   benutzerAnlegen,
   benutzerPasswortAendern,
@@ -3878,7 +3879,13 @@ async function datenbankEntsperren(): Promise<void> {
     return;
   }
   schluesselSetzen(passwort);
-  appPhase = "login";
+  // Normalfall: die zentrale Datenbank existiert bereits fertig mit
+  // mindestens einem Benutzer. Bricht die Ersteinrichtung nach dem Anlegen
+  // der Datenbank aber vor dem ersten Benutzer ab (Absturz, fehlgeschlagenes
+  // passwort_hashen), existiert die Datei zwar schon, aber ohne Benutzer —
+  // dann zurück zur Ersteinrichtung statt in einer aussichtslosen Anmeldung
+  // ohne Konten steckenzubleiben.
+  appPhase = (await benutzerAnzahl()) > 0 ? "login" : "ersteinrichtung";
   render();
 }
 
